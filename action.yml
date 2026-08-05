@@ -43,10 +43,18 @@ inputs:
     description: Prefix for git tags
     required: false
     default: ""
+  dependency-build:
+    description: Build chart dependencies (helm dependency build) before packaging
+    required: false
+    default: "true"
 
 runs:
   using: composite
   steps:
+    - name: Build helm-semver image from action source
+      shell: bash
+      run: docker build -t helm-semver:dc-use "${{ github.action_path }}"
+
     - name: Run helm-semver
       shell: bash
       run: |
@@ -60,7 +68,7 @@ runs:
           -e GITHUB_REPOSITORY_OWNER \
           -e GITHUB_TOKEN="${{ inputs.github-token }}" \
           -e HOME=/tmp \
-          ghcr.io/rhysmcneill/helm-semver:latest \
+          helm-semver:dc-use \
           release \
           --registry="${{ inputs.registry }}" \
           --registry-type="${{ inputs.registry-type }}" \
@@ -71,6 +79,7 @@ runs:
           --dry-run="${{ inputs.dry-run }}" \
           --changelog="${{ inputs.changelog }}" \
           --github-release="${{ inputs.github-release }}" \
+          --dependency-build="${{ inputs.dependency-build }}" \
           --git-token="${{ inputs.github-token }}" \
           --tag-prefix="${{ inputs.tag-prefix }}"
 
