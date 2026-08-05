@@ -53,21 +53,22 @@ func newVersionCmd() *cobra.Command {
 }
 
 type releaseOptions struct {
-	chartsDir     string
-	registry      string
-	registryType  string
-	registryUser  string
-	registryPass  string
-	gitPush       bool
-	dryRun        bool
-	changelog     bool
-	githubRelease bool
-	gitToken      string
-	githubOwner   string
-	githubRepo    string
-	tagPrefix     string
-	authorName    string
-	authorEmail   string
+	chartsDir       string
+	registry        string
+	registryType    string
+	registryUser    string
+	registryPass    string
+	gitPush         bool
+	dryRun          bool
+	changelog       bool
+	githubRelease   bool
+	dependencyBuild bool
+	gitToken        string
+	githubOwner     string
+	githubRepo      string
+	tagPrefix       string
+	authorName      string
+	authorEmail     string
 }
 
 func newReleaseCmd() *cobra.Command {
@@ -93,6 +94,7 @@ and pushes it to the configured registry.`,
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Print what would happen without making any changes")
 	cmd.Flags().BoolVar(&opts.changelog, "changelog", true, "Append release entry to CHANGELOG.md per chart")
 	cmd.Flags().BoolVar(&opts.githubRelease, "github-release", false, "Create a GitHub Release for each chart")
+	cmd.Flags().BoolVar(&opts.dependencyBuild, "dependency-build", true, "Build chart dependencies (helm dependency build) before packaging")
 	cmd.Flags().StringVar(&opts.gitToken, "git-token", os.Getenv("GITHUB_TOKEN"), "Token for git push authentication (env: GITHUB_TOKEN)")
 	// --github-token is a deprecated alias kept for backwards compatibility.
 	cmd.Flags().StringVar(&opts.gitToken, "github-token", os.Getenv("GITHUB_TOKEN"), "Deprecated: use --git-token")
@@ -216,6 +218,14 @@ func releaseChart(cmd *cobra.Command, opts *releaseOptions, gitClient *igit.Clie
 	// Bump Chart.yaml.
 	if err := chart.BumpVersion(filepath.Join(chartDir, "Chart.yaml"), newVersion); err != nil {
 		return fmt.Errorf("bumping version for %s: %w", chartName, err)
+	}
+
+	// Vendor declared dependencies before packaging so the published chart
+	// is self-contained.
+	if opts.dependencyBuild {
+		if err := chart.BuildDependencies(chartDir, out); err != nil {
+			return fmt.Errorf("building dependencies for %s: %w", chartName, err)
+		}
 	}
 
 	// Push to registry.
