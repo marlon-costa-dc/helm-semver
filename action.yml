@@ -51,10 +51,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Build helm-semver image from action source
-      shell: bash
-      run: docker build -t helm-semver:dc-use "${{ github.action_path }}"
-
     - name: Run helm-semver
       shell: bash
       run: |
@@ -68,7 +64,7 @@ runs:
           -e GITHUB_REPOSITORY_OWNER \
           -e GITHUB_TOKEN="${{ inputs.github-token }}" \
           -e HOME=/tmp \
-          helm-semver:dc-use \
+          ghcr.io/marlon-costa-dc/helm-semver:1.1.0-dc.1@sha256:875d0daad551532b4c13032da2717d153146d662008ee164d340e2f89cafaf77 \
           release \
           --registry="${{ inputs.registry }}" \
           --registry-type="${{ inputs.registry-type }}" \
