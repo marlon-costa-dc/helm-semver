@@ -238,7 +238,9 @@ func TestRelease_DependencyOnlyChange_DoesNotRepublishConsumer(t *testing.T) {
 		t.Errorf("consumer was republished because its DEPENDENCY changed — the "+
 			"cascade the operator forbids; output:\n%s", out)
 	}
-	if !strings.Contains(out, "consumer: no releasable commits") {
+	// The tree gate answers first: the consumer is byte-identical to what its
+	// tag released, so it is skipped without any commit analysis at all.
+	if !strings.Contains(out, "consumer: unchanged since consumer-v0.1.0") {
 		t.Errorf("consumer must be explicitly skipped; output:\n%s", out)
 	}
 
@@ -275,7 +277,7 @@ func TestRelease_UnchangedChartIsSkipped(t *testing.T) {
 
 	out := dryRun(t, dir)
 
-	if !strings.Contains(out, "myapp: no releasable commits") {
+	if !strings.Contains(out, "myapp: unchanged since myapp-v0.4.120") {
 		t.Errorf("unchanged chart must be skipped, not re-released; output:\n%s", out)
 	}
 	if strings.Contains(out, "would push") {

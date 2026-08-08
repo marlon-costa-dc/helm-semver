@@ -133,6 +133,74 @@ func (c *Client) ancestorsOf(start plumbing.Hash) (map[plumbing.Hash]struct{}, e
 	return seen, nil
 }
 
+// treeHashAt returns the hash of the tree object stored at path in the given
+// commit, and false when the path does not exist there.
+func (c *Client) treeHashAt(commitHash plumbing.Hash, path string) (plumbing.Hash, bool, error) {
+	commit, err := c.repo.CommitObject(commitHash)
+	if err != nil {
+		return plumbing.ZeroHash, false, fmt.Errorf("reading commit %s: %w", commitHash, err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return plumbing.ZeroHash, false, fmt.Errorf("reading tree of %s: %w", commitHash, err)
+	}
+	entry, err := tree.FindEntry(path)
+	if err != nil {
+		return plumbing.ZeroHash, false, nil
+	}
+	return entry.Hash, true, nil
+}
+
+// PathUnchangedSince reports whether the tree stored at path is byte-identical
+// between the given tag and HEAD.
+//
+// Git addresses a directory by the hash of its content, so two equal tree
+// hashes prove the directory is identical without inspecting a single commit.
+// That makes this the cheapest possible answer to "did this chart change?":
+// two object lookups instead of a tree diff per commit of history.
+//
+// It is also the most accurate one. A commit that touches a chart is not
+// evidence that the chart differs from what its tag released — a revert, a
+// merge that re-integrates already-released work, or a bump written before the
+// tag was cut all leave the tree exactly as the tag published it. The artifact
+// built from HEAD would be byte-identical to the one already in the registry,
+// so re-publishing it would only burn a version number.
+//
+// An empty tag means no baseline exists (a first release), which is reported
+// as changed so the caller falls through to normal commit analysis.
+func (c *Client) PathUnchangedSince(tag, path string) (bool, error) {
+	if tag == "" || path == "" {
+		return false, nil
+	}
+
+	ref, err := c.repo.Tag(tag)
+	if err != nil {
+		return false, fmt.Errorf("resolving tag %q: %w", tag, err)
+	}
+	tagged := ref.Hash()
+	if tagObj, err := c.repo.TagObject(ref.Hash()); err == nil {
+		tagged = tagObj.Target
+	}
+
+	head, err := c.repo.Head()
+	if err != nil {
+		return false, fmt.Errorf("resolving HEAD: %w", err)
+	}
+
+	before, hadBefore, err := c.treeHashAt(tagged, path)
+	if err != nil {
+		return false, err
+	}
+	after, hasAfter, err := c.treeHashAt(head.Hash(), path)
+	if err != nil {
+		return false, err
+	}
+	if !hadBefore || !hasAfter {
+		return false, nil
+	}
+	return before == after, nil
+}
+
 // CommitsSince returns commits that touched pathFilter since the given tag,
 // implementing `git log <tag>..HEAD -- <pathFilter>` semantics.
 // If tag is empty, all commits touching pathFilter are returned. Each CommitInfo

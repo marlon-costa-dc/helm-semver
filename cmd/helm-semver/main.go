@@ -183,6 +183,22 @@ func releaseChart(cmd *cobra.Command, opts *releaseOptions, gitClient *igit.Clie
 		return fmt.Errorf("resolving relative path for %s: %w", chartName, err)
 	}
 
+	// Ask the cheap question first: is this chart's tree identical to what its
+	// tag already released? Git addresses a directory by the hash of its
+	// content, so two object lookups answer it, while the walk below diffs a
+	// tree per commit of history. Skipping here is also more accurate: a
+	// revert, a merge re-integrating released work, or a bump written before
+	// the tag was cut all leave commits in the range while the artifact stays
+	// byte-identical to the published one.
+	unchanged, err := gitClient.PathUnchangedSince(lastTag, relPath)
+	if err != nil {
+		return fmt.Errorf("comparing %s against %s: %w", chartName, lastTag, err)
+	}
+	if unchanged {
+		_, _ = fmt.Fprintf(out, "  %s: unchanged since %s — skipping\n", chartName, lastTag)
+		return nil
+	}
+
 	commits, err := gitClient.CommitsSince(lastTag, relPath)
 	if err != nil {
 		return fmt.Errorf("listing commits for %s: %w", chartName, err)

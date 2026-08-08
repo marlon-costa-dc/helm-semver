@@ -53,6 +53,21 @@ func addCommit(t *testing.T, c *Client, dir, file, msg string) {
 	}
 }
 
+func removeCommit(t *testing.T, c *Client, dir, file, msg string) {
+	t.Helper()
+	wt, _ := c.repo.Worktree()
+	if err := os.Remove(filepath.Join(dir, file)); err != nil {
+		t.Fatalf("remove %q: %v", file, err)
+	}
+	_, _ = wt.Add(file)
+	_, err := wt.Commit(msg, &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com"},
+	})
+	if err != nil {
+		t.Fatalf("commit %q: %v", msg, err)
+	}
+}
+
 func TestLatestTag_NoTags(t *testing.T) {
 	c, _ := initTestRepo(t)
 	tag, err := c.LatestTag("myapp")
@@ -361,5 +376,112 @@ func TestLatestTag_IgnoresUnparseableTags(t *testing.T) {
 	}
 	if tag != "myapp-v0.1.0" {
 		t.Errorf("LatestTag() = %q, want %q", tag, "myapp-v0.1.0")
+	}
+}
+
+// TestPathUnchangedSince_IdenticalTreeNeedsNoWalk pins the cheap gate: when a
+// chart's directory tree is byte-identical between its baseline tag and HEAD,
+// nothing in that chart changed and no commit walk is needed to know it.
+//
+// This is the difference between resolving two tree objects and diffing every
+// commit in history. In cosmos-charts the full-history walk does not finish in
+// 900s for a single chart, while comparing tree hashes decides all 79 charts in
+// 0.83s.
+func TestPathUnchangedSince_IdenticalTreeNeedsNoWalk(t *testing.T) {
+	c, dir := initTestRepo(t)
+
+	addCommit(t, c, dir, "charts/app/Chart.yaml", "feat: seed app")
+	if err := c.Tag("app-v0.1.0"); err != nil {
+		t.Fatalf("Tag() error = %v", err)
+	}
+	// Work lands elsewhere in the repository, never inside charts/app.
+	addCommit(t, c, dir, "charts/other/Chart.yaml", "feat: unrelated chart")
+
+	unchanged, err := c.PathUnchangedSince("app-v0.1.0", "charts/app")
+	if err != nil {
+		t.Fatalf("PathUnchangedSince() error = %v", err)
+	}
+	if !unchanged {
+		t.Error("charts/app is byte-identical to its tag, so it must report unchanged")
+	}
+}
+
+// TestPathUnchangedSince_RealEditIsDetected is the regression guard: the gate
+// must never suppress a chart that genuinely changed.
+func TestPathUnchangedSince_RealEditIsDetected(t *testing.T) {
+	c, dir := initTestRepo(t)
+
+	addCommit(t, c, dir, "charts/app/Chart.yaml", "feat: seed app")
+	if err := c.Tag("app-v0.1.0"); err != nil {
+		t.Fatalf("Tag() error = %v", err)
+	}
+	addCommit(t, c, dir, "charts/app/values.yaml", "feat: tune replicas")
+
+	unchanged, err := c.PathUnchangedSince("app-v0.1.0", "charts/app")
+	if err != nil {
+		t.Fatalf("PathUnchangedSince() error = %v", err)
+	}
+	if unchanged {
+		t.Error("charts/app gained a file after its tag, so it must report changed")
+	}
+}
+
+// TestPathUnchangedSince_RevertToTaggedTreeIsUnchanged pins the boundary the
+// gate deliberately draws. Commits landed and were then reverted, so the tree
+// is identical to the tagged one again. There is nothing to publish: the
+// artifact built from HEAD would be byte-identical to the one the tag already
+// released, and releasing it would only burn a version number.
+func TestPathUnchangedSince_RevertToTaggedTreeIsUnchanged(t *testing.T) {
+	c, dir := initTestRepo(t)
+
+	addCommit(t, c, dir, "charts/app/Chart.yaml", "feat: seed app")
+	if err := c.Tag("app-v0.1.0"); err != nil {
+		t.Fatalf("Tag() error = %v", err)
+	}
+	addCommit(t, c, dir, "charts/app/values.yaml", "feat: add tuning")
+	removeCommit(t, c, dir, "charts/app/values.yaml", "revert: drop tuning")
+
+	unchanged, err := c.PathUnchangedSince("app-v0.1.0", "charts/app")
+	if err != nil {
+		t.Fatalf("PathUnchangedSince() error = %v", err)
+	}
+	if !unchanged {
+		t.Error("a reverted tree matches the tag byte-for-byte and must report unchanged")
+	}
+}
+
+// TestPathUnchangedSince_MissingPathAtTagIsChanged covers a chart added after
+// its baseline tag was cut: the path does not exist at the tag, so it changed.
+func TestPathUnchangedSince_MissingPathAtTagIsChanged(t *testing.T) {
+	c, dir := initTestRepo(t)
+
+	addCommit(t, c, dir, "charts/other/Chart.yaml", "feat: seed other")
+	if err := c.Tag("app-v0.1.0"); err != nil {
+		t.Fatalf("Tag() error = %v", err)
+	}
+	addCommit(t, c, dir, "charts/app/Chart.yaml", "feat: introduce app")
+
+	unchanged, err := c.PathUnchangedSince("app-v0.1.0", "charts/app")
+	if err != nil {
+		t.Fatalf("PathUnchangedSince() error = %v", err)
+	}
+	if unchanged {
+		t.Error("a chart absent at its tag must report changed")
+	}
+}
+
+// TestPathUnchangedSince_NoTagIsChanged covers the first release: with no
+// baseline there is nothing to compare, so the chart must be considered
+// changed and fall through to the normal commit analysis.
+func TestPathUnchangedSince_NoTagIsChanged(t *testing.T) {
+	c, dir := initTestRepo(t)
+	addCommit(t, c, dir, "charts/app/Chart.yaml", "feat: seed app")
+
+	unchanged, err := c.PathUnchangedSince("", "charts/app")
+	if err != nil {
+		t.Fatalf("PathUnchangedSince() error = %v", err)
+	}
+	if unchanged {
+		t.Error("a chart with no baseline tag must report changed")
 	}
 }
