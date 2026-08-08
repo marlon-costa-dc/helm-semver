@@ -64,7 +64,7 @@ runs:
           -e GITHUB_REPOSITORY_OWNER \
           -e GITHUB_TOKEN="${{ inputs.github-token }}" \
           -e HOME=/tmp \
-          ghcr.io/marlon-costa-dc/helm-semver:1.1.0-dc.1@sha256:875d0daad551532b4c13032da2717d153146d662008ee164d340e2f89cafaf77 \
+          ghcr.io/marlon-costa-dc/helm-semver:1.1.0-dc.2@sha256:b4e45110e26dfbd9427ab28c1435ed9192cdf40b5100513e2c554caac7da055a \
           release \
           --registry="${{ inputs.registry }}" \
           --registry-type="${{ inputs.registry-type }}" \
