@@ -5,16 +5,15 @@ package git
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
@@ -62,8 +61,14 @@ func Open(path string) (*Client, error) {
 	return &Client{repo: repo}, nil
 }
 
-// LatestTag returns the most recent tag matching the pattern "<chart>-v*",
+// LatestTag returns the highest-versioned tag matching the pattern "<chart>-v*",
 // or an empty string if none exists.
+//
+// Ordering is semantic, not lexicographic: as strings "v0.4.99" sorts above
+// "v0.4.120", which would silently pin the baseline to a stale release once a
+// chart passes patch .99 and make every later run re-read already-released
+// history. Tags whose suffix is not valid semver are ignored rather than
+// allowed to win the comparison.
 func (c *Client) LatestTag(chart string) (string, error) {
 	tags, err := c.repo.Tags()
 	if err != nil {
@@ -71,11 +76,22 @@ func (c *Client) LatestTag(chart string) (string, error) {
 	}
 
 	prefix := chart + "-v"
-	var matches []string
+	var (
+		bestName    string
+		bestVersion *semver.Version
+	)
 	err = tags.ForEach(func(ref *plumbing.Reference) error {
 		name := ref.Name().Short()
-		if strings.HasPrefix(name, prefix) {
-			matches = append(matches, name)
+		if !strings.HasPrefix(name, prefix) {
+			return nil
+		}
+		v, err := semver.NewVersion(strings.TrimPrefix(name, prefix))
+		if err != nil {
+			return nil
+		}
+		if bestVersion == nil || v.GreaterThan(bestVersion) {
+			bestVersion = v
+			bestName = name
 		}
 		return nil
 	})
@@ -83,21 +99,56 @@ func (c *Client) LatestTag(chart string) (string, error) {
 		return "", fmt.Errorf("iterating tags: %w", err)
 	}
 
-	if len(matches) == 0 {
-		return "", nil
-	}
-
-	// Sort lexicographically descending — good enough for semver tags that
-	// follow the <chart>-vMAJOR.MINOR.PATCH format.
-	sort.Sort(sort.Reverse(sort.StringSlice(matches)))
-	return matches[0], nil
+	return bestName, nil
 }
 
-// CommitsSince returns commits that touched pathFilter since the given tag.
-// If tag is empty, all commits are returned. Each CommitInfo carries the commit
-// subject, full SHA hash, and any GitHub PR number parsed from a "(#N)" trailer.
+// pathMatches reports whether a changed file path lies inside the directory
+// named by filter. A bare strings.HasPrefix would make the filter
+// "charts/cosmos-vault" also swallow "charts/cosmos-vault-extras/Chart.yaml",
+// attributing a sibling chart's commits to the wrong chart.
+func pathMatches(path, filter string) bool {
+	if filter == "" {
+		return true
+	}
+	filter = strings.TrimSuffix(filter, "/")
+	return path == filter || strings.HasPrefix(path, filter+"/")
+}
+
+// ancestorsOf returns the set of every commit hash reachable from start,
+// walking the full graph with no path filter.
+func (c *Client) ancestorsOf(start plumbing.Hash) (map[plumbing.Hash]struct{}, error) {
+	iter, err := c.repo.Log(&gogit.LogOptions{From: start, Order: gogit.LogOrderCommitterTime})
+	if err != nil {
+		return nil, fmt.Errorf("walking ancestry: %w", err)
+	}
+	defer iter.Close()
+
+	seen := make(map[plumbing.Hash]struct{})
+	if err := iter.ForEach(func(commit *object.Commit) error {
+		seen[commit.Hash] = struct{}{}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("collecting ancestry: %w", err)
+	}
+	return seen, nil
+}
+
+// CommitsSince returns commits that touched pathFilter since the given tag,
+// implementing `git log <tag>..HEAD -- <pathFilter>` semantics.
+// If tag is empty, all commits touching pathFilter are returned. Each CommitInfo
+// carries the commit subject, full SHA hash, and any GitHub PR number parsed
+// from a "(#N)" trailer.
+//
+// Exclusion is by ANCESTRY, not by stopping on an exact hash match. The walk is
+// path-filtered, so it only ever yields commits that touched this chart; a tag
+// placed on a commit that did not touch this chart therefore never appears in
+// that stream and a stop-on-hash check can never fire. The walk then runs off
+// the end of history and re-collects commits that were already released, so a
+// single old `feat:` commit re-bumps the chart on every subsequent run. That is
+// the normal shape here: baseline tags are routinely created by release or CI
+// commits that touch no chart directory at all.
 func (c *Client) CommitsSince(tag, pathFilter string) ([]CommitInfo, error) {
-	var since *plumbing.Hash
+	var excluded map[plumbing.Hash]struct{}
 
 	if tag != "" {
 		ref, err := c.repo.Tag(tag)
@@ -105,19 +156,25 @@ func (c *Client) CommitsSince(tag, pathFilter string) ([]CommitInfo, error) {
 			return nil, fmt.Errorf("resolving tag %q: %w", tag, err)
 		}
 		// Tags can point to tag objects or directly to commits.
-		tagObj, err := c.repo.TagObject(ref.Hash())
-		if err == nil {
-			since = &tagObj.Target
-		} else {
-			h := ref.Hash()
-			since = &h
+		since := ref.Hash()
+		if tagObj, err := c.repo.TagObject(ref.Hash()); err == nil {
+			since = tagObj.Target
+		}
+		if excluded, err = c.ancestorsOf(since); err != nil {
+			return nil, err
 		}
 	}
 
+	head, err := c.repo.Head()
+	if err != nil {
+		return nil, fmt.Errorf("resolving HEAD: %w", err)
+	}
+
 	logOpts := &gogit.LogOptions{
+		From:  head.Hash(),
 		Order: gogit.LogOrderCommitterTime,
 		PathFilter: func(path string) bool {
-			return strings.HasPrefix(path, pathFilter)
+			return pathMatches(path, pathFilter)
 		},
 	}
 
@@ -125,12 +182,12 @@ func (c *Client) CommitsSince(tag, pathFilter string) ([]CommitInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git log: %w", err)
 	}
+	defer iter.Close()
 
 	var commits []CommitInfo
 	err = iter.ForEach(func(commit *object.Commit) error {
-		// Stop when we reach the tagged commit (exclusive).
-		if since != nil && commit.Hash == *since {
-			return storer.ErrStop
+		if _, released := excluded[commit.Hash]; released {
+			return nil
 		}
 		subject := strings.SplitN(strings.TrimSpace(commit.Message), "\n", 2)[0]
 		commits = append(commits, CommitInfo{
