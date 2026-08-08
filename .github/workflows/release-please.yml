@@ -65,9 +65,9 @@ jobs:
           COMMIT="${GITHUB_SHA::8}"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           LDFLAGS="-s -w \
-            -X github.com/rmcneill/helm-semver/internal/version.Version=${VERSION} \
-            -X github.com/rmcneill/helm-semver/internal/version.Commit=${COMMIT} \
-            -X github.com/rmcneill/helm-semver/internal/version.BuildDate=${BUILD_DATE}"
+            -X github.com/rhysmcneill/helm-semver/internal/version.Version=${VERSION} \
+            -X github.com/rhysmcneill/helm-semver/internal/version.Commit=${COMMIT} \
+            -X github.com/rhysmcneill/helm-semver/internal/version.BuildDate=${BUILD_DATE}"
           BINARY="helm-semver-${GOOS}-${GOARCH}${{ matrix.ext }}"
           go build -ldflags="${LDFLAGS}" -o "${BINARY}" ./cmd/helm-semver
           sha256sum "${BINARY}" > "${BINARY}.sha256"
