@@ -49,8 +49,17 @@ type Client struct {
 }
 
 // Open opens the git repository at the given path.
+//
+// DetectDotGit lets the caller point at any directory inside the working tree,
+// and EnableDotGitCommonDir follows the .git file of a linked worktree through
+// its commondir pointer: without it the worktree gitdir is treated as the whole
+// repository, refs/HEAD live in the shared gitdir, and every HEAD resolution
+// fails with "reference not found" on lanes.
 func Open(path string) (*Client, error) {
-	repo, err := gogit.PlainOpen(path)
+	repo, err := gogit.PlainOpenWithOptions(path, &gogit.PlainOpenOptions{
+		DetectDotGit: true,
+		EnableDotGitCommonDir: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("opening git repo at %s: %w", path, err)
 	}
