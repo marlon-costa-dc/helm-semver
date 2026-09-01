@@ -154,9 +154,10 @@ jobs:
           TAG: ${{ needs.release-please.outputs.tag_name }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          MAJOR="${TAG%%.*}"
-          git config user.name "helm-semver[bot]"
-          git config user.email "4134222+helm-semver[bot]@users.noreply.github.com"
+          MAJOR="v${TAG#v}"
+          MAJOR="v${MAJOR%%.*}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           # Tag against the current SHA directly — the release tag isn't fetched
           # in the shallow clone so resolving it by name would fail.
           git tag -f "${MAJOR}" "${{ github.sha }}"
