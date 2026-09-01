@@ -5,7 +5,7 @@
 
 ### Features
 
-* **changelog:** update the changelog structure that is produced by helm-semver to include pr links and release-please style logging ([#44](https://github.com/rhysmcneill/helm-semver/issues/44)) ([1fc0524](https://github.com/rhysmcneill/helm-semver/commit/1fc0524ab6cbb7664f067093e1d29d7a5bfab2ce))
+* **changelog:** update the changelog structure that is produced by helm-semver to include pr links and release-please style logging ([#44](https://github.com/rhysmcneill/helm-semver/pull/44)) ([1fc0524](https://github.com/rhysmcneill/helm-semver/commit/1fc0524ab6cbb7664f067093e1d29d7a5bfab2ce))
 
 
 ### Bug Fixes
