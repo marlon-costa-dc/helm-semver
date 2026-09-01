@@ -7,9 +7,9 @@ COMMIT   ?= $(shell git rev-parse --short HEAD)
 DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 LDFLAGS  = -ldflags "\
-	-X github.com/rmcneill/helm-semver/internal/version.Version=$(VERSION) \
-	-X github.com/rmcneill/helm-semver/internal/version.Commit=$(COMMIT) \
-	-X github.com/rmcneill/helm-semver/internal/version.BuildDate=$(DATE)"
+	-X github.com/rhysmcneill/helm-semver/internal/version.Version=$(VERSION) \
+	-X github.com/rhysmcneill/helm-semver/internal/version.Commit=$(COMMIT) \
+	-X github.com/rhysmcneill/helm-semver/internal/version.BuildDate=$(DATE)"
 
 BINARY   = bin/helm-semver
 

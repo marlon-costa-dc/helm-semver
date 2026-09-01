@@ -43,6 +43,10 @@ inputs:
     description: Prefix for git tags
     required: false
     default: ""
+  dependency-build:
+    description: Build chart dependencies (helm dependency build) before packaging
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -60,7 +64,7 @@ runs:
           -e GITHUB_REPOSITORY_OWNER \
           -e GITHUB_TOKEN="${{ inputs.github-token }}" \
           -e HOME=/tmp \
-          ghcr.io/rhysmcneill/helm-semver:latest \
+          ghcr.io/marlon-costa-dc/helm-semver:1.1.0-dc.2@sha256:b4e45110e26dfbd9427ab28c1435ed9192cdf40b5100513e2c554caac7da055a \
           release \
           --registry="${{ inputs.registry }}" \
           --registry-type="${{ inputs.registry-type }}" \
@@ -71,6 +75,7 @@ runs:
           --dry-run="${{ inputs.dry-run }}" \
           --changelog="${{ inputs.changelog }}" \
           --github-release="${{ inputs.github-release }}" \
+          --dependency-build="${{ inputs.dependency-build }}" \
           --git-token="${{ inputs.github-token }}" \
           --tag-prefix="${{ inputs.tag-prefix }}"
 
