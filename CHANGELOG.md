@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.1.0](https://github.com/rhysmcneill/helm-semver/compare/v1.0.7...v1.1.0) (2026-06-24)
+
+
+### Features
+
+* **changelog:** update the changelog structure that is produced by helm-semver to include pr links and release-please style logging ([#44](https://github.com/rhysmcneill/helm-semver/issues/44)) ([1fc0524](https://github.com/rhysmcneill/helm-semver/commit/1fc0524ab6cbb7664f067093e1d29d7a5bfab2ce))
+
+
+### Bug Fixes
+
+* **ci:** add helm-semver bot for release automation ([#46](https://github.com/rhysmcneill/helm-semver/issues/46)) ([a015173](https://github.com/rhysmcneill/helm-semver/commit/a0151733336f1bab0de56d4f32dbf8f3c54037aa))
+
+## [1.0.7](https://github.com/rhysmcneill/helm-semver/compare/v1.0.6...v1.0.7) (2026-06-22)
+
+
+### Bug Fixes
+
+* **project:** changed rmcneill to rhysmcneill across the project ([#37](https://github.com/rhysmcneill/helm-semver/issues/37)) ([54412cd](https://github.com/rhysmcneill/helm-semver/commit/54412cd69b34b6bf42c6df438e1cc16a9fe69319))
+
+## [1.0.6](https://github.com/rhysmcneill/helm-semver/compare/v1.0.5...v1.0.6) (2026-06-17)
+
+
+### Bug Fixes
+
+* **git:** add current time to all git-push related commands  ([#23](https://github.com/rhysmcneill/helm-semver/issues/23)) ([52ae320](https://github.com/rhysmcneill/helm-semver/commit/52ae320dccdf8dda6fce68bf75b8b6dc63efe8ef))
+
+## [1.0.5](https://github.com/rhysmcneill/helm-semver/compare/v1.0.4...v1.0.5) (2026-06-17)
+
+
+### Bug Fixes
+
+* **git:** authenticate git push with GitHub token ([#20](https://github.com/rhysmcneill/helm-semver/issues/20)) ([ff3147a](https://github.com/rhysmcneill/helm-semver/commit/ff3147a1afd8f1abf4704d849c6dc043c9ef5227))
+
+## [1.0.4](https://github.com/rhysmcneill/helm-semver/compare/v1.0.3...v1.0.4) (2026-06-16)
+
+
+### Bug Fixes
+
+* **release,docker:** resolve tag-major and Docker QEMU build issues ([#17](https://github.com/rhysmcneill/helm-semver/issues/17)) ([2da3c3e](https://github.com/rhysmcneill/helm-semver/commit/2da3c3e4d3785cd7ed4c039c6973539e956374d0))
+
 ## [1.0.3](https://github.com/rhysmcneill/helm-semver/compare/v1.0.2...v1.0.3) (2026-06-16)
 
 

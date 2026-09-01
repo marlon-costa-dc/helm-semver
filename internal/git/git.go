@@ -1,171 +1,114 @@
-// Package git provides git operations for helm-semver: reading commit history,
-// writing version bump commits, tagging, and pushing.
+// Package git provides git operations for helm-semver.
 package git
 
 import (
 	"fmt"
-	"sort"
+	"regexp"
+	"strconv"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/storer"
 )
+
+// CommitInfo holds data about a single commit.
+type CommitInfo struct {
+	Subject string
+	Hash    string
+	PR      int
+}
+
+var rePR = regexp.MustCompile(`\(#(\d+)\)\s*$`)
+
+func parsePR(subject string) int {
+	m := rePR.FindStringSubmatch(subject)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+// Subjects returns the Subject field of each CommitInfo, preserving order.
+func Subjects(commits []CommitInfo) []string {
+	out := make([]string, len(commits))
+	for i, c := range commits {
+		out[i] = c.Subject
+	}
+	return out
+}
 
 // Client wraps a go-git repository.
 type Client struct {
 	repo *gogit.Repository
+
+	// reachableCache holds the commit set of the current HEAD so history is
+	// read once per HEAD rather than once per chart.
+	reachableCache *reachable
 }
 
 // Open opens the git repository at the given path.
+//
+// DetectDotGit lets the caller point at any directory inside the working tree,
+// and EnableDotGitCommonDir follows the .git file of a linked worktree through
+// its commondir pointer: without it the worktree gitdir is treated as the whole
+// repository, refs/HEAD live in the shared gitdir, and every HEAD resolution
+// fails with "reference not found" on lanes.
 func Open(path string) (*Client, error) {
-	repo, err := gogit.PlainOpen(path)
+	repo, err := gogit.PlainOpenWithOptions(path, &gogit.PlainOpenOptions{
+		DetectDotGit: true,
+		EnableDotGitCommonDir: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("opening git repo at %s: %w", path, err)
 	}
 	return &Client{repo: repo}, nil
 }
 
-// LatestTag returns the most recent tag matching the pattern "<chart>-v*",
-// or an empty string if none exists.
+// LatestTag returns the highest-versioned tag matching "<chart>-v*" that is
+// reachable from HEAD, or an empty string if none exists.
+//
+// Reachability is part of the answer, not a refinement of it. A tag sitting on
+// a branch HEAD never integrated describes a release line this HEAD is not on,
+// so adopting it as the baseline would measure this chart against work that is
+// absent from HEAD.
+//
+// Ordering is semantic, not lexicographic: as strings "v0.4.99" sorts above
+// "v0.4.120", which would pin the baseline to a stale release once a chart
+// passes patch .99. Tags whose suffix is not valid semver are ignored.
 func (c *Client) LatestTag(chart string) (string, error) {
 	tags, err := c.repo.Tags()
 	if err != nil {
 		return "", fmt.Errorf("listing tags: %w", err)
 	}
-
+	head, err := c.reachableFromHead()
+	if err != nil {
+		return "", err
+	}
 	prefix := chart + "-v"
-	var matches []string
+	var bestName string
+	var bestVersion *semver.Version
 	err = tags.ForEach(func(ref *plumbing.Reference) error {
 		name := ref.Name().Short()
-		if strings.HasPrefix(name, prefix) {
-			matches = append(matches, name)
+		if !strings.HasPrefix(name, prefix) {
+			return nil
+		}
+		v, err := semver.NewVersion(strings.TrimPrefix(name, prefix))
+		if err != nil {
+			return nil
+		}
+		if !head.contains(c.tagTarget(ref)) {
+			return nil
+		}
+		if bestVersion == nil || v.GreaterThan(bestVersion) {
+			bestVersion = v
+			bestName = name
 		}
 		return nil
 	})
 	if err != nil {
 		return "", fmt.Errorf("iterating tags: %w", err)
 	}
-
-	if len(matches) == 0 {
-		return "", nil
-	}
-
-	// Sort lexicographically descending — good enough for semver tags that
-	// follow the <chart>-vMAJOR.MINOR.PATCH format.
-	sort.Sort(sort.Reverse(sort.StringSlice(matches)))
-	return matches[0], nil
-}
-
-// CommitsSince returns the commit subject lines for commits that touched
-// pathFilter since the given tag. If tag is empty, all commits are returned.
-func (c *Client) CommitsSince(tag, pathFilter string) ([]string, error) {
-	var since *plumbing.Hash
-
-	if tag != "" {
-		ref, err := c.repo.Tag(tag)
-		if err != nil {
-			return nil, fmt.Errorf("resolving tag %q: %w", tag, err)
-		}
-		// Tags can point to tag objects or directly to commits.
-		tagObj, err := c.repo.TagObject(ref.Hash())
-		if err == nil {
-			since = &tagObj.Target
-		} else {
-			h := ref.Hash()
-			since = &h
-		}
-	}
-
-	logOpts := &gogit.LogOptions{
-		Order: gogit.LogOrderCommitterTime,
-		PathFilter: func(path string) bool {
-			return strings.HasPrefix(path, pathFilter)
-		},
-	}
-
-	iter, err := c.repo.Log(logOpts)
-	if err != nil {
-		return nil, fmt.Errorf("git log: %w", err)
-	}
-
-	var subjects []string
-	err = iter.ForEach(func(commit *object.Commit) error {
-		// Stop when we reach the tagged commit (exclusive).
-		if since != nil && commit.Hash == *since {
-			return storer.ErrStop
-		}
-		// Only the subject line (first line of message).
-		subject := strings.SplitN(strings.TrimSpace(commit.Message), "\n", 2)[0]
-		subjects = append(subjects, subject)
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("iterating commits: %w", err)
-	}
-
-	return subjects, nil
-}
-
-// StageFile adds a file to the git index.
-func (c *Client) StageFile(path string) error {
-	wt, err := c.repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("getting worktree: %w", err)
-	}
-	if _, err := wt.Add(path); err != nil {
-		return fmt.Errorf("staging %s: %w", path, err)
-	}
-	return nil
-}
-
-// Commit creates a new commit with the given message and author details.
-func (c *Client) Commit(message, authorName, authorEmail string) error {
-	wt, err := c.repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("getting worktree: %w", err)
-	}
-
-	opts := &gogit.CommitOptions{
-		Author: &object.Signature{
-			Name:  authorName,
-			Email: authorEmail,
-		},
-	}
-
-	if _, err := wt.Commit(message, opts); err != nil {
-		return fmt.Errorf("committing: %w", err)
-	}
-	return nil
-}
-
-// Tag creates a lightweight tag at HEAD.
-func (c *Client) Tag(name string) error {
-	head, err := c.repo.Head()
-	if err != nil {
-		return fmt.Errorf("resolving HEAD: %w", err)
-	}
-
-	_, err = c.repo.CreateTag(name, head.Hash(), nil)
-	if err != nil {
-		return fmt.Errorf("creating tag %q: %w", name, err)
-	}
-	return nil
-}
-
-// Push pushes the current branch and all tags to the named remote.
-func (c *Client) Push(remote string) error {
-	err := c.repo.Push(&gogit.PushOptions{
-		RemoteName: remote,
-		RefSpecs: []config.RefSpec{
-			"refs/heads/*:refs/heads/*",
-			"refs/tags/*:refs/tags/*",
-		},
-	})
-	if err != nil && err != gogit.NoErrAlreadyUpToDate {
-		return fmt.Errorf("pushing to %s: %w", remote, err)
-	}
-	return nil
+	return bestName, nil
 }

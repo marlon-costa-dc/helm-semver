@@ -1,9 +1,8 @@
+# This file is used to define the GitHub Action for the helm-semver tool.
+
 name: helm-semver
 description: >
-  Semver release automation for Helm charts. Bumps chart versions
-  from conventional commits, packages and pushes to any OCI registry.
-  Works as a GitHub Action or standalone Docker image on any CI platform.
-
+  Semver release automation for Helm charts. Bumps chart versions from conventional commits and send them to a OCI registry
 inputs:
   registry:
     description: Registry URL (e.g. oci://ghcr.io/my-org/helm-charts)
@@ -39,12 +38,17 @@ inputs:
     required: false
     default: "false"
   github-token:
-    description: GitHub token for creating releases
+    description: GitHub token for git push and creating releases
     required: false
+    default: ${{ github.token }}
   tag-prefix:
     description: Prefix for git tags
     required: false
     default: ""
+  dependency-build:
+    description: Build chart dependencies (helm dependency build) before packaging
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -60,8 +64,9 @@ runs:
           -e GITHUB_ACTOR \
           -e GITHUB_REPOSITORY \
           -e GITHUB_REPOSITORY_OWNER \
+          -e GITHUB_TOKEN="${{ inputs.github-token }}" \
           -e HOME=/tmp \
-          ghcr.io/rhysmcneill/helm-semver:latest \
+          ghcr.io/marlon-costa-dc/helm-semver:1.1.0-dc.2@sha256:b4e45110e26dfbd9427ab28c1435ed9192cdf40b5100513e2c554caac7da055a \
           release \
           --registry="${{ inputs.registry }}" \
           --registry-type="${{ inputs.registry-type }}" \
@@ -72,7 +77,8 @@ runs:
           --dry-run="${{ inputs.dry-run }}" \
           --changelog="${{ inputs.changelog }}" \
           --github-release="${{ inputs.github-release }}" \
-          --github-token="${{ inputs.github-token }}" \
+          --dependency-build="${{ inputs.dependency-build }}" \
+          --git-token="${{ inputs.github-token }}" \
           --tag-prefix="${{ inputs.tag-prefix }}"
 
 branding:

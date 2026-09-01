@@ -265,6 +265,7 @@ Flags:
   --dry-run                     Print what would happen without making any changes
   --changelog                   Append release entry to CHANGELOG.md per chart (default true)
   --github-release              Create a GitHub Release for each chart
+  --dependency-build            Build chart dependencies (helm dependency build) before packaging (default true)
   --github-token string         GitHub token (env: GITHUB_TOKEN)
   --github-owner string         GitHub repository owner (env: GITHUB_REPOSITORY_OWNER)
   --github-repo string          GitHub repository name
