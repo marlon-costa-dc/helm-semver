@@ -58,7 +58,7 @@ func (p *GitHubPagesPublisher) Push(chartDir, version string) error {
 	_ = tgzName
 
 	// Open or clone the gh-pages branch as a worktree.
-	repo, err := gogit.PlainOpen(p.RepoPath)
+	repo, err := gogit.PlainOpenWithOptions(p.RepoPath, &gogit.PlainOpenOptions{DetectDotGit: true, EnableDotGitCommonDir: true})
 	if err != nil {
 		return fmt.Errorf("opening repo at %s: %w", p.RepoPath, err)
 	}

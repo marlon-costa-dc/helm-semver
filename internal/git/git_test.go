@@ -53,6 +53,21 @@ func addCommit(t *testing.T, c *Client, dir, file, msg string) {
 	}
 }
 
+func removeCommit(t *testing.T, c *Client, dir, file, msg string) {
+	t.Helper()
+	wt, _ := c.repo.Worktree()
+	if err := os.Remove(filepath.Join(dir, file)); err != nil {
+		t.Fatalf("remove %q: %v", file, err)
+	}
+	_, _ = wt.Add(file)
+	_, err := wt.Commit(msg, &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com"},
+	})
+	if err != nil {
+		t.Fatalf("commit %q: %v", msg, err)
+	}
+}
+
 func TestLatestTag_NoTags(t *testing.T) {
 	c, _ := initTestRepo(t)
 	tag, err := c.LatestTag("myapp")
@@ -146,18 +161,15 @@ func TestSubjects(t *testing.T) {
 	}
 }
 
-func TestStageAndCommit(t *testing.T) {
+func TestCommit_RecordsTheStagedRelease(t *testing.T) {
 	c, dir := initTestRepo(t)
 
 	newFile := filepath.Join(dir, "charts/app/Chart.yaml")
 	_ = os.MkdirAll(filepath.Dir(newFile), 0o750)
 	_ = os.WriteFile(newFile, []byte("version: 0.2.0"), 0o600)
 
-	if err := c.StageFile("charts/app/Chart.yaml"); err != nil {
-		t.Fatalf("StageFile() error = %v", err)
-	}
-
-	if err := c.Commit("chore(app): release v0.2.0 [skip ci]", "bot", "bot@bot.com"); err != nil {
+	if err := c.Commit("chore(app): release v0.2.0 [skip ci]", "bot", "bot@bot.com",
+		"charts/app/Chart.yaml"); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
 
@@ -173,10 +185,9 @@ func TestCommit_TimestampIsRecent(t *testing.T) {
 
 	newFile := filepath.Join(dir, "foo.txt")
 	_ = os.WriteFile(newFile, []byte("x"), 0o600)
-	_ = c.StageFile("foo.txt")
 
 	before := time.Now().Add(-time.Second)
-	if err := c.Commit("test: check timestamp", "bot", "bot@example.com"); err != nil {
+	if err := c.Commit("test: check timestamp", "bot", "bot@example.com", "foo.txt"); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
 	after := time.Now().Add(time.Second)
