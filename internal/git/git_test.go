@@ -3,6 +3,7 @@ package git
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -239,24 +240,83 @@ func TestRemoteIsHTTPS_UnknownRemote(t *testing.T) {
 	}
 }
 
-func TestPush_LocalBareRemote(t *testing.T) {
-	c, dir := initTestRepo(t)
-	addCommit(t, c, dir, "charts/app/Chart.yaml", "feat: something")
-
+// bareRemote adds a local bare repository as the "origin" remote of c.
+func bareRemote(t *testing.T, c *Client) *gogit.Repository {
+	t.Helper()
 	bareDir := t.TempDir()
-	if _, err := gogit.PlainInit(bareDir, true); err != nil {
+	bare, err := gogit.PlainInit(bareDir, true)
+	if err != nil {
 		t.Fatalf("init bare repo: %v", err)
 	}
-
 	if _, err := c.repo.CreateRemote(&config.RemoteConfig{
 		Name: "origin",
 		URLs: []string{bareDir},
 	}); err != nil {
 		t.Fatalf("create remote: %v", err)
 	}
+	return bare
+}
 
-	// Push with no token to a local file remote — should succeed without auth.
-	if err := c.Push("origin", ""); err != nil {
-		t.Fatalf("Push() error = %v", err)
+func TestPushRelease_PushesTheBranchAndOnlyTheReleaseTag(t *testing.T) {
+	c, dir := initTestRepo(t)
+	addCommit(t, c, dir, "charts/app/Chart.yaml", "feat: something")
+	if err := c.Tag("app-v0.1.0"); err != nil {
+		t.Fatalf("tag release: %v", err)
+	}
+	if err := c.Tag("unrelated-local-tag"); err != nil {
+		t.Fatalf("tag unrelated: %v", err)
+	}
+	bare := bareRemote(t, c)
+
+	// A local file remote needs no token.
+	if err := c.PushRelease("origin", "", "app-v0.1.0"); err != nil {
+		t.Fatalf("PushRelease() error = %v", err)
+	}
+
+	head, err := c.repo.Head()
+	if err != nil {
+		t.Fatalf("resolving HEAD: %v", err)
+	}
+	remoteBranch, err := bare.Reference(head.Name(), true)
+	if err != nil {
+		t.Fatalf("remote branch %s missing: %v", head.Name().Short(), err)
+	}
+	if remoteBranch.Hash() != head.Hash() {
+		t.Errorf("remote %s = %s, want %s", head.Name().Short(), remoteBranch.Hash(), head.Hash())
+	}
+	if _, err := bare.Tag("app-v0.1.0"); err != nil {
+		t.Errorf("release tag not pushed: %v", err)
+	}
+	if _, err := bare.Tag("unrelated-local-tag"); err == nil {
+		t.Errorf("a tag other than the release tag was pushed")
+	}
+}
+
+func TestPushRelease_RefusesADetachedHead(t *testing.T) {
+	c, dir := initTestRepo(t)
+	addCommit(t, c, dir, "charts/app/Chart.yaml", "feat: something")
+	head, err := c.repo.Head()
+	if err != nil {
+		t.Fatalf("resolving HEAD: %v", err)
+	}
+	wt, err := c.repo.Worktree()
+	if err != nil {
+		t.Fatalf("opening worktree: %v", err)
+	}
+	if err := wt.Checkout(&gogit.CheckoutOptions{Hash: head.Hash()}); err != nil {
+		t.Fatalf("detaching HEAD: %v", err)
+	}
+	if err := c.Tag("app-v0.1.0"); err != nil {
+		t.Fatalf("tag release: %v", err)
+	}
+	bare := bareRemote(t, c)
+
+	err = c.PushRelease("origin", "", "app-v0.1.0")
+
+	if err == nil || !strings.Contains(err.Error(), "HEAD is detached") {
+		t.Fatalf("PushRelease() error = %v, want a detached-HEAD refusal", err)
+	}
+	if _, err := bare.Tag("app-v0.1.0"); err == nil {
+		t.Errorf("the tag of a release on no branch reached the remote")
 	}
 }
