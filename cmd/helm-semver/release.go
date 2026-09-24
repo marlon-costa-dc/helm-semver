@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -263,13 +264,8 @@ func (runner *releaseRunner) releaseChart(planned plannedRelease) error {
 	if err := chart.BumpVersion(filepath.Join(planned.dir, "Chart.yaml"), planned.version); err != nil {
 		return fmt.Errorf("bumping version for %s: %w", planned.name, err)
 	}
-	if runner.options.dependencyBuild {
-		if err := chart.BuildDependencies(planned.dir, out); err != nil {
-			return fmt.Errorf("building dependencies for %s: %w", planned.name, err)
-		}
-	}
-	if err := runner.publisher.Push(planned.dir, planned.version); err != nil {
-		return fmt.Errorf("pushing %s: %w", planned.name, err)
+	if err := runner.publish(planned, out); err != nil {
+		return err
 	}
 	_, _ = fmt.Fprintf(out, "    pushed to %s\n", runner.options.registry)
 	released := []string{filepath.Join(planned.relPath, "Chart.yaml")}
@@ -297,6 +293,23 @@ func (runner *releaseRunner) releaseChart(planned plannedRelease) error {
 		_, _ = fmt.Fprintf(out, "    pushed the release commit and %s\n", planned.tag)
 	}
 	return runner.createGitHubRelease(planned.chartRelease, planned.version, planned.tag)
+}
+
+// publish packages and pushes one chart. The dependencies it builds for the
+// package are removed from the source chart afterwards, pushed or not, so the
+// next chart and the release commit see the tree as the repository has it.
+func (runner *releaseRunner) publish(planned plannedRelease, out io.Writer) (err error) {
+	if runner.options.dependencyBuild {
+		removeBuilt, buildErr := chart.BuildDependencies(planned.dir, out)
+		if buildErr != nil {
+			return fmt.Errorf("building dependencies for %s: %w", planned.name, buildErr)
+		}
+		defer func() { err = errors.Join(err, removeBuilt()) }()
+	}
+	if err := runner.publisher.Push(planned.dir, planned.version); err != nil {
+		return fmt.Errorf("pushing %s: %w", planned.name, err)
+	}
+	return nil
 }
 
 // nextFreeVersion moves version past every version the registry already holds
