@@ -138,9 +138,13 @@ func (runner *releaseRunner) releaseChart(candidate chartRelease) error {
 	if err != nil {
 		return fmt.Errorf("computing next version for %s: %w", candidate.name, err)
 	}
-	newVersion, err = runner.nextFreeVersion(metadata.Name, newVersion)
-	if err != nil {
-		return err
+	// A dry run makes no network call: it previews the version derived from the
+	// commits. Only a real release asks the registry what is already taken.
+	if !runner.options.dryRun {
+		newVersion, err = runner.nextFreeVersion(metadata.Name, newVersion)
+		if err != nil {
+			return err
+		}
 	}
 	newTag := runner.options.tagPrefix + candidate.name + "-v" + newVersion
 	_, _ = fmt.Fprintf(out, "  %s: %s → %s (%s)\n", candidate.name, metadata.Version, newVersion, bump)

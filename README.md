@@ -291,7 +291,8 @@ That happens when a chart was published without its tag ever reaching the
 repository, so the tag lineage no longer describes the registry. Re-publishing
 the derived version would overwrite an immutable reference or fail. A registry
 that cannot be read stops the release; it is never taken to mean "nothing
-published".
+published". A `--dry-run` makes no network call and previews the version derived
+from the commits; only a real release consults the registry.
 
 ### `helm-semver version`
 
