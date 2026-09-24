@@ -57,7 +57,7 @@ type Client struct {
 // fails with "reference not found" on lanes.
 func Open(path string) (*Client, error) {
 	repo, err := gogit.PlainOpenWithOptions(path, &gogit.PlainOpenOptions{
-		DetectDotGit: true,
+		DetectDotGit:          true,
 		EnableDotGitCommonDir: true,
 	})
 	if err != nil {

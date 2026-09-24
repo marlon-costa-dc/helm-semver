@@ -52,6 +52,7 @@ type releaseOptions struct {
 	registryType    string
 	registryUser    string
 	registryPass    string
+	registryHTTP    bool
 	gitPush         bool
 	dryRun          bool
 	changelog       bool
@@ -84,6 +85,7 @@ and pushes it to the configured registry.`,
 	cmd.Flags().StringVar(&opts.registryType, "registry-type", "oci", "Registry type: oci, chartmuseum, github-pages")
 	cmd.Flags().StringVar(&opts.registryUser, "registry-username", "", "Registry username")
 	cmd.Flags().StringVar(&opts.registryPass, "registry-password", os.Getenv("REGISTRY_PASSWORD"), "Registry password (env: REGISTRY_PASSWORD)")
+	cmd.Flags().BoolVar(&opts.registryHTTP, "registry-plain-http", false, "Talk to an OCI registry over HTTP instead of HTTPS")
 	cmd.Flags().BoolVar(&opts.gitPush, "git-push", true, "Push version bump commit and tags")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Print what would happen without making any changes")
 	cmd.Flags().BoolVar(&opts.changelog, "changelog", true, "Append release entry to CHANGELOG.md per chart")
@@ -134,6 +136,7 @@ func newPublisher(opts *releaseOptions) (registry.Publisher, error) {
 			RegistryURL: opts.registry,
 			Username:    opts.registryUser,
 			Password:    opts.registryPass,
+			PlainHTTP:   opts.registryHTTP,
 		}, nil
 	case "chartmuseum":
 		return &registry.ChartMuseumPublisher{

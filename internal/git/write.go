@@ -173,6 +173,7 @@ func (c *Client) restoreIndex(preserved *index.Index, paths []string) error {
 	return nil
 }
 
+// Tag creates a lightweight tag named name at HEAD.
 func (c *Client) Tag(name string) error {
 	head, err := c.repo.Head()
 	if err != nil {
@@ -184,6 +185,8 @@ func (c *Client) Tag(name string) error {
 	return nil
 }
 
+// Push pushes every local branch and every tag to remote. token authenticates
+// only an HTTPS remote; an already up-to-date remote is not an error.
 func (c *Client) Push(remote, token string) error {
 	opts := &gogit.PushOptions{
 		RemoteName: remote,
