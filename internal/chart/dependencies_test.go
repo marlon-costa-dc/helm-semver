@@ -107,7 +107,8 @@ func TestBuildDependencies_VendorsSubchartsBeforePackaging(t *testing.T) {
 	}
 
 	// The fix: BuildDependencies vendors the subchart before packaging.
-	if err := BuildDependencies(parentDir, io.Discard); err != nil {
+	removeBuilt, err := BuildDependencies(parentDir, io.Discard)
+	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
 	}
 
@@ -118,6 +119,50 @@ func TestBuildDependencies_VendorsSubchartsBeforePackaging(t *testing.T) {
 
 	if err := packageChart(parentDir); err != nil {
 		t.Fatalf("packaging after dependency build failed: %v", err)
+	}
+
+	// The committed Chart.lock stays; the vendored archive leaves the tree.
+	if err := removeBuilt(); err != nil {
+		t.Fatalf("removing the build output: %v", err)
+	}
+	if _, err := os.Stat(vendored); !os.IsNotExist(err) {
+		t.Errorf("vendored subchart %s is still in the source chart", vendored)
+	}
+	if _, err := os.Stat(filepath.Join(parentDir, "Chart.lock")); err != nil {
+		t.Errorf("the committed Chart.lock was removed: %v", err)
+	}
+}
+
+func TestBuildDependencies_LeavesAnUnlockedChartAsItFoundIt(t *testing.T) {
+	// Given a chart with dependencies, no Chart.lock and one embedded subchart of its own.
+	parentDir := writeDepWorkspace(t)
+	own := filepath.Join(parentDir, "charts", "embedded", "Chart.yaml")
+	if err := os.MkdirAll(filepath.Dir(own), 0o750); err != nil {
+		t.Fatalf("creating charts/: %v", err)
+	}
+	if err := os.WriteFile(own, []byte("apiVersion: v2\nname: embedded\nversion: 0.1.0\n"), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", own, err)
+	}
+
+	// When the dependencies are built and the build output is removed.
+	removeBuilt, err := BuildDependencies(parentDir, io.Discard)
+	if err != nil {
+		t.Fatalf("BuildDependencies() error = %v", err)
+	}
+	if err := removeBuilt(); err != nil {
+		t.Fatalf("removing the build output: %v", err)
+	}
+
+	// Then only the chart's own subchart remains.
+	entries, err := os.ReadDir(filepath.Join(parentDir, "charts"))
+	if err != nil {
+		t.Fatalf("reading charts/: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "embedded" {
+		t.Errorf("charts/ holds %v, want only embedded", entries)
+	}
+	if _, err := os.Stat(filepath.Join(parentDir, "Chart.lock")); !os.IsNotExist(err) {
+		t.Errorf("the Chart.lock written by the build is still in the source chart")
 	}
 }
 
@@ -131,7 +176,7 @@ version: 0.1.0
 		t.Fatalf("writing chart: %v", err)
 	}
 
-	if err := BuildDependencies(dir, io.Discard); err != nil {
+	if _, err := BuildDependencies(dir, io.Discard); err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
 	}
 
@@ -161,7 +206,7 @@ dependencies:
 		t.Fatalf("writing drifted chart: %v", err)
 	}
 
-	err := BuildDependencies(parentDir, io.Discard)
+	_, err := BuildDependencies(parentDir, io.Discard)
 	if err == nil {
 		t.Fatal("expected lock drift to fail, got nil")
 	}
