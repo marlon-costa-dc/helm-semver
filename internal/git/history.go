@@ -17,7 +17,6 @@ func pathMatches(path, filter string) bool {
 	return path == filter || strings.HasPrefix(path, filter+"/")
 }
 
-
 func (c *Client) treeHashAt(commitHash plumbing.Hash, path string) (plumbing.Hash, bool, error) {
 	commit, err := c.repo.CommitObject(commitHash)
 	if err != nil {
@@ -34,6 +33,9 @@ func (c *Client) treeHashAt(commitHash plumbing.Hash, path string) (plumbing.Has
 	return entry.Hash, true, nil
 }
 
+// PathUnchangedSince reports whether path has the same tree at tag and at HEAD.
+// An empty tag or path, or a path absent on either side, is never unchanged:
+// there is no baseline to compare.
 func (c *Client) PathUnchangedSince(tag, path string) (bool, error) {
 	if tag == "" || path == "" {
 		return false, nil
@@ -61,6 +63,8 @@ func (c *Client) PathUnchangedSince(tag, path string) (bool, error) {
 	return before == after, nil
 }
 
+// CommitsSince returns the commits reachable from HEAD but not from tag that
+// touch pathFilter; an empty tag means every commit reachable from HEAD.
 func (c *Client) CommitsSince(tag, pathFilter string) ([]CommitInfo, error) {
 	var excluded map[plumbing.Hash]struct{}
 	if tag != "" {

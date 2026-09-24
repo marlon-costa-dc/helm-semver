@@ -138,6 +138,14 @@ func (runner *releaseRunner) releaseChart(candidate chartRelease) error {
 	if err != nil {
 		return fmt.Errorf("computing next version for %s: %w", candidate.name, err)
 	}
+	// A dry run makes no network call: it previews the version derived from the
+	// commits. Only a real release asks the registry what is already taken.
+	if !runner.options.dryRun {
+		newVersion, err = runner.nextFreeVersion(metadata.Name, newVersion)
+		if err != nil {
+			return err
+		}
+	}
 	newTag := runner.options.tagPrefix + candidate.name + "-v" + newVersion
 	_, _ = fmt.Fprintf(out, "  %s: %s → %s (%s)\n", candidate.name, metadata.Version, newVersion, bump)
 	if runner.options.dryRun {
@@ -182,6 +190,42 @@ func (runner *releaseRunner) releaseChart(candidate chartRelease) error {
 	}
 	_, _ = fmt.Fprintf(out, "    tagged %s\n", newTag)
 	return runner.createGitHubRelease(candidate, newVersion, newTag)
+}
+
+// nextFreeVersion moves version past every version the registry already holds
+// for chartName, one patch at a time.
+//
+// The derived version is taken when a chart was published without its tag
+// reaching the repository: the tag lineage no longer describes the registry.
+// Publishing it again would overwrite an immutable reference or fail, so the
+// release takes the next free patch instead. The version is still written by
+// this tool and nothing else; a backend that cannot list its versions keeps the
+// derived one.
+func (runner *releaseRunner) nextFreeVersion(chartName, version string) (string, error) {
+	lister, ok := runner.publisher.(registry.VersionLister)
+	if !ok {
+		return version, nil
+	}
+	published, err := lister.PublishedVersions(chartName)
+	if err != nil {
+		return "", fmt.Errorf("reading published versions of %s: %w", chartName, err)
+	}
+	taken := make(map[string]struct{}, len(published))
+	for _, publishedVersion := range published {
+		taken[publishedVersion] = struct{}{}
+	}
+	for {
+		if _, occupied := taken[version]; !occupied {
+			return version, nil
+		}
+		next, err := semver.Next(version, semver.BumpPatch)
+		if err != nil {
+			return "", fmt.Errorf("advancing past published %s %s: %w", chartName, version, err)
+		}
+		_, _ = fmt.Fprintf(runner.command.OutOrStdout(),
+			"  %s: %s is already published — advancing to %s\n", chartName, version, next)
+		version = next
+	}
 }
 
 // writeChangelog appends this release's entry and returns the path it wrote,

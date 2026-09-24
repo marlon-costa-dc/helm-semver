@@ -1,6 +1,7 @@
 package chart
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,7 +25,7 @@ func writeDepWorkspace(t *testing.T) (parentDir string) {
 	root := t.TempDir()
 
 	subDir := filepath.Join(root, "sub")
-	if err := os.MkdirAll(subDir, 0o755); err != nil {
+	if err := os.MkdirAll(subDir, 0o750); err != nil {
 		t.Fatalf("creating subchart dir: %v", err)
 	}
 	subChart := `apiVersion: v2
@@ -36,7 +37,7 @@ version: 0.1.0
 	}
 
 	parentDir = filepath.Join(root, "parent")
-	if err := os.MkdirAll(parentDir, 0o755); err != nil {
+	if err := os.MkdirAll(parentDir, 0o750); err != nil {
 		t.Fatalf("creating parent dir: %v", err)
 	}
 	parentChart := `apiVersion: v2
@@ -83,12 +84,14 @@ func packageChart(chartDir string) error {
 	pkg := action.NewPackage()
 	dest, err := os.MkdirTemp("", "helm-semver-test-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("creating package destination: %w", err)
 	}
 	defer os.RemoveAll(dest) //nolint:errcheck
 	pkg.Destination = dest
-	_, err = pkg.Run(chartDir, nil)
-	return err
+	if _, err = pkg.Run(chartDir, nil); err != nil {
+		return fmt.Errorf("packaging %s: %w", chartDir, err)
+	}
+	return nil
 }
 
 func TestBuildDependencies_VendorsSubchartsBeforePackaging(t *testing.T) {

@@ -261,6 +261,7 @@ Flags:
   --registry-type string        Registry type: oci, chartmuseum, github-pages (default "oci")
   --registry-username string    Registry username
   --registry-password string    Registry password (env: REGISTRY_PASSWORD)
+  --registry-plain-http         Talk to an OCI registry over HTTP instead of HTTPS
   --git-push                    Push version bump commit and tags (default true)
   --dry-run                     Print what would happen without making any changes
   --changelog                   Append release entry to CHANGELOG.md per chart (default true)
@@ -273,6 +274,25 @@ Flags:
   --git-author-name string      Git commit author name (default "helm-semver[bot]")
   --git-author-email string     Git commit author email
 ```
+
+#### Versions already in the registry
+
+The next version is derived from the chart's own `version:` and the conventional
+commits since its last release tag. With an OCI registry, helm-semver then checks
+which versions of the chart the registry already holds, and moves past any that
+are taken, one patch at a time:
+
+```
+  app: 0.2.0 is already published — advancing to 0.2.1
+  app: 0.1.0 → 0.2.1 (minor)
+```
+
+That happens when a chart was published without its tag ever reaching the
+repository, so the tag lineage no longer describes the registry. Re-publishing
+the derived version would overwrite an immutable reference or fail. A registry
+that cannot be read stops the release; it is never taken to mean "nothing
+published". A `--dry-run` makes no network call and previews the version derived
+from the commits; only a real release consults the registry.
 
 ### `helm-semver version`
 
