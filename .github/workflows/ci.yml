@@ -42,8 +42,12 @@ jobs:
           retention-days: 7
 
       - name: Upload coverage to Codecov
-        # Skip for dependabot PRs — they cannot access secrets.
-        if: github.actor != 'dependabot[bot]'
+        # An external-token upload: it runs only where its token exists. Without
+        # CODECOV_TOKEN (dependabot, or a fork that never configured one) the step
+        # is NOT EXECUTED — never reported green, and never a failure of the tests.
+        if: env.CODECOV_TOKEN != ''
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
