@@ -7,6 +7,18 @@ type Publisher interface {
 	Push(chartDir, version string) error
 }
 
+// PushChecker is implemented by backends that can tell, before anything is
+// published, whether the configured credential may publish a chart.
+//
+// A release publishes chart after chart. A refusal discovered at the fifth
+// chart leaves four published and the rest missing; asked before the first
+// push, the same refusal costs nothing.
+type PushChecker interface {
+	// CheckPush returns an error naming chartName when the registry would
+	// refuse to publish it with the configured credential.
+	CheckPush(chartName string) error
+}
+
 // VersionLister is implemented by backends that can answer which versions of a
 // chart are already published.
 //

@@ -257,12 +257,14 @@ Release preview
 ```
 Flags:
   --charts-dir string           Root directory containing chart subdirectories (default "charts")
+  --charts strings              Release only these charts; a name that is not a chart is an error
+  --output string               text, or json: the planned (dry run) or published releases on stdout (default "text")
   --registry string             Registry URL (required)
   --registry-type string        Registry type: oci, chartmuseum, github-pages (default "oci")
   --registry-username string    Registry username
   --registry-password string    Registry password (env: REGISTRY_PASSWORD)
   --registry-plain-http         Talk to an OCI registry over HTTP instead of HTTPS
-  --git-push                    Push version bump commit and tags (default true)
+  --git-push                    Push each release commit and its tag as it is published (default true)
   --dry-run                     Print what would happen without making any changes
   --changelog                   Append release entry to CHANGELOG.md per chart (default true)
   --github-release              Create a GitHub Release for each chart
@@ -293,6 +295,43 @@ the derived version would overwrite an immutable reference or fail. A registry
 that cannot be read stops the release; it is never taken to mean "nothing
 published". A `--dry-run` makes no network call and previews the version derived
 from the commits; only a real release consults the registry.
+
+#### Order of a release: plan, preflight, then chart by chart
+
+A release first decides every version, then — with an OCI registry — asks the
+registry to open an upload for each chart with the configured credential, the
+first request a push makes. A refusal stops the run before anything is
+published:
+
+```
+Error: preflight, nothing published: oci://ghcr.io/my-org/helm-charts refuses to publish web: 403 Forbidden: {"errors":[{"code":"DENIED",...}]}
+```
+
+Charts are then released one at a time. Each release commit and its tag are
+pushed as soon as the chart is in the registry, so a later chart failing leaves
+every earlier release published *and* tagged. The push carries only the branch
+HEAD is on and that release's tag, and a detached HEAD is refused: a release
+commit on no branch would be invisible to the next run, which reads only tags
+reachable from HEAD, and the chart would be released again. In CI, check out
+the branch, not the commit SHA.
+
+The opened upload session is not cancelled — GHCR answers 405 to that — and a
+session that receives no blob writes nothing.
+
+#### Machine-readable plan
+
+`--output json` prints the releases as JSON on stdout and moves progress to
+stderr. With `--dry-run` it is the plan; after a real release it is what was
+published:
+
+```json
+{
+  "releases": [
+    {"chart": "web", "path": "charts/web", "lastTag": "web-v0.1.0",
+     "currentVersion": "0.1.0", "version": "0.2.0", "bump": "minor", "tag": "web-v0.2.0"}
+  ]
+}
+```
 
 ### `helm-semver version`
 

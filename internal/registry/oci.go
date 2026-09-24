@@ -1,15 +1,22 @@
 package registry
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"helm.sh/helm/v3/pkg/action"
 	helmchart "helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v3/pkg/helmpath"
 	helmregistry "helm.sh/helm/v3/pkg/registry"
+	orasregistry "oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/credentials"
 	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
@@ -102,14 +109,79 @@ func repositoryUnknown(err error) bool {
 	return false
 }
 
-// client builds a registry client carrying the configured credentials.
-func (p *OCIPublisher) client() (*helmregistry.Client, error) {
-	var clientOpts []helmregistry.ClientOption
-	if p.Username != "" && p.Password != "" {
-		clientOpts = append(clientOpts,
-			helmregistry.ClientOptBasicAuth(p.Username, p.Password),
-		)
+// CheckPush asks the registry to open an upload for chartName with the
+// configured credential, the first request a push makes. 202 means the push
+// would be accepted; any other answer is returned as the refusal, naming the
+// chart, before anything has been published.
+//
+// The opened session is not cancelled: GHCR answers 405 to cancelling an
+// upload (measured 2026-09-24), and a session that receives no blob writes
+// nothing and expires.
+func (p *OCIPublisher) CheckPush(chartName string) error {
+	authorizer, err := p.authorizer()
+	if err != nil {
+		return err
 	}
+	ref, err := orasregistry.ParseReference(p.repository(chartName))
+	if err != nil {
+		return fmt.Errorf("parsing repository of %s: %w", chartName, err)
+	}
+	ctx := auth.AppendRepositoryScope(context.Background(), ref, auth.ActionPull, auth.ActionPush)
+	scheme := "https"
+	if p.PlainHTTP {
+		scheme = "http"
+	}
+	url := fmt.Sprintf("%s://%s/v2/%s/blobs/uploads/", scheme, ref.Host(), ref.Repository)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("building the upload check for %s: %w", chartName, err)
+	}
+	response, err := authorizer.Do(request)
+	if err != nil {
+		return fmt.Errorf("asking %s whether %s may be published: %w", p.RegistryURL, chartName, err)
+	}
+	defer response.Body.Close() //nolint:errcheck
+	if response.StatusCode == http.StatusAccepted {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	return fmt.Errorf("%s refuses to publish %s: %s: %s",
+		p.RegistryURL, chartName, response.Status, strings.TrimSpace(string(body)))
+}
+
+// authorizer is the one authorizer every request of this publisher uses, so
+// the push check presents exactly the credential the push will. It resolves
+// credentials as helm.sh/helm/v3/pkg/registry.NewClient does: the explicit
+// username and password, else Helm's registry login store, then Docker's.
+func (p *OCIPublisher) authorizer() (*auth.Client, error) {
+	authorizer := &auth.Client{Client: &http.Client{Transport: helmregistry.NewTransport(false)}}
+	if p.Username != "" && p.Password != "" {
+		credential := auth.Credential{Username: p.Username, Password: p.Password}
+		authorizer.Credential = func(_ context.Context, _ string) (auth.Credential, error) {
+			return credential, nil
+		}
+		return authorizer, nil
+	}
+	options := credentials.StoreOptions{AllowPlaintextPut: true, DetectDefaultNativeStore: true}
+	store, err := credentials.NewStore(helmpath.ConfigPath(helmregistry.CredentialsFileBasename), options)
+	if err != nil {
+		return nil, fmt.Errorf("reading the Helm registry credentials: %w", err)
+	}
+	if docker, err := credentials.NewStoreFromDocker(options); err == nil {
+		authorizer.Credential = credentials.Credential(credentials.NewStoreWithFallbacks(store, docker))
+	} else {
+		authorizer.Credential = credentials.Credential(store)
+	}
+	return authorizer, nil
+}
+
+// client builds a registry client that authenticates through authorizer.
+func (p *OCIPublisher) client() (*helmregistry.Client, error) {
+	authorizer, err := p.authorizer()
+	if err != nil {
+		return nil, err
+	}
+	clientOpts := []helmregistry.ClientOption{helmregistry.ClientOptAuthorizer(*authorizer)}
 	if p.PlainHTTP {
 		clientOpts = append(clientOpts, helmregistry.ClientOptPlainHTTP())
 	}

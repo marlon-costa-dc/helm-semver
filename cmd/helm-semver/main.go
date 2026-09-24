@@ -46,8 +46,13 @@ func newVersionCmd() *cobra.Command {
 	}
 }
 
+// outputJSON selects the machine-readable release plan on stdout.
+const outputJSON = "json"
+
 type releaseOptions struct {
 	chartsDir       string
+	charts          []string
+	output          string
 	registry        string
 	registryType    string
 	registryUser    string
@@ -81,6 +86,8 @@ and pushes it to the configured registry.`,
 	}
 
 	cmd.Flags().StringVar(&opts.chartsDir, "charts-dir", "charts", "Root directory containing chart subdirectories")
+	cmd.Flags().StringSliceVar(&opts.charts, "charts", nil, "Release only these charts (names under --charts-dir); a name that is not a chart is an error")
+	cmd.Flags().StringVar(&opts.output, "output", "text", "Output format: text, or json (the planned or published releases on stdout; progress on stderr)")
 	cmd.Flags().StringVar(&opts.registry, "registry", "", "Registry URL (required)")
 	cmd.Flags().StringVar(&opts.registryType, "registry-type", "oci", "Registry type: oci, chartmuseum, github-pages")
 	cmd.Flags().StringVar(&opts.registryUser, "registry-username", "", "Registry username")
@@ -109,6 +116,9 @@ and pushes it to the configured registry.`,
 }
 
 func runRelease(cmd *cobra.Command, opts *releaseOptions) error {
+	if opts.output != "text" && opts.output != outputJSON {
+		return fmt.Errorf("unknown --output %q: must be text or json", opts.output)
+	}
 	repoRoot, err := findRepoRoot()
 	if err != nil {
 		return fmt.Errorf("finding repository root: %w", err)

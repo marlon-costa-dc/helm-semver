@@ -185,21 +185,38 @@ func (c *Client) Tag(name string) error {
 	return nil
 }
 
-// Push pushes every local branch and every tag to remote. token authenticates
+// PushRelease publishes one release to remote: the branch HEAD is on, carrying
+// the release commit, and the release tag — nothing else. token authenticates
 // only an HTTPS remote; an already up-to-date remote is not an error.
-func (c *Client) Push(remote, token string) error {
+//
+// A release is pushed as soon as it is published, not with the others at the
+// end: a later chart failing then leaves every earlier release tagged on the
+// remote, instead of a published version whose tag never left the runner.
+//
+// A detached HEAD is refused. The release commit would live on no branch, so
+// the next run — which only reads tags reachable from HEAD — would not see the
+// tag and would release the chart again.
+func (c *Client) PushRelease(remote, token, tag string) error {
+	head, err := c.repo.Head()
+	if err != nil {
+		return fmt.Errorf("resolving HEAD: %w", err)
+	}
+	if !head.Name().IsBranch() {
+		return fmt.Errorf("pushing %s: HEAD is detached; check out the branch the release commits belong to", tag)
+	}
+	branch := head.Name()
 	opts := &gogit.PushOptions{
 		RemoteName: remote,
 		RefSpecs: []config.RefSpec{
-			"refs/heads/*:refs/heads/*",
-			"refs/tags/*:refs/tags/*",
+			config.RefSpec(branch.String() + ":" + branch.String()),
+			config.RefSpec("refs/tags/" + tag + ":refs/tags/" + tag),
 		},
 	}
 	if token != "" && c.remoteIsHTTPS(remote) {
 		opts.Auth = &http.BasicAuth{Username: "x-access-token", Password: token}
 	}
-	if err := c.repo.Push(opts); err != nil && err != gogit.NoErrAlreadyUpToDate {
-		return fmt.Errorf("pushing to %s: %w", remote, err)
+	if err := c.repo.Push(opts); err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
+		return fmt.Errorf("pushing %s and %s to %s: %w", branch.Short(), tag, remote, err)
 	}
 	return nil
 }
