@@ -77,3 +77,13 @@ jobs:
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: latest
+
+  # The integration branch requires a status check named `ci`. GitHub reports a
+  # check under the job's display name, and the jobs above keep upstream's names,
+  # so this job carries the required name and passes only when both of them do.
+  required:
+    name: ci
+    runs-on: ubuntu-latest
+    needs: [ci, lint]
+    steps:
+      - run: echo "Test, Build & Smoke and Lint passed"
