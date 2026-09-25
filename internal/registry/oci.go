@@ -12,7 +12,7 @@ import (
 
 	"helm.sh/helm/v3/pkg/action"
 	helmchart "helm.sh/helm/v3/pkg/chart/loader"
-	"helm.sh/helm/v3/pkg/helmpath"
+	"helm.sh/helm/v3/pkg/cli"
 	helmregistry "helm.sh/helm/v3/pkg/registry"
 	orasregistry "oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
@@ -207,7 +207,10 @@ func (p *OCIPublisher) authorizer() (*auth.Client, error) {
 		return authorizer, nil
 	}
 	options := credentials.StoreOptions{AllowPlaintextPut: true, DetectDefaultNativeStore: true}
-	store, err := credentials.NewStore(helmpath.ConfigPath(helmregistry.CredentialsFileBasename), options)
+	// cli.New() resolves HELM_REGISTRY_CONFIG and HELM_CONFIG_HOME exactly as
+	// `helm registry login` and the dependency build do, so the credential this
+	// publisher reads is the one the login wrote.
+	store, err := credentials.NewStore(cli.New().RegistryConfig, options)
 	if err != nil {
 		return nil, fmt.Errorf("reading the Helm registry credentials: %w", err)
 	}

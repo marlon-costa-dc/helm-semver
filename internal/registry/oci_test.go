@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	helmregistry "helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/repo/repotest"
 )
 
@@ -79,5 +80,39 @@ func TestOCIPublisher_PublishedVersionsFailsLoudOnAnUnreachableRegistry(t *testi
 
 	if err == nil {
 		t.Fatalf("an unreachable registry answered %v; it must fail instead of reading as unpublished", versions)
+	}
+}
+
+func TestOCIPublisher_ReadsTheLoginHelmRegistryConfigNames(t *testing.T) {
+	// Given a registry login written where HELM_REGISTRY_CONFIG points, as
+	// `helm registry login` does when that variable is set.
+	server, err := repotest.NewOCIServer(t, t.TempDir())
+	if err != nil {
+		t.Fatalf("starting OCI registry: %v", err)
+	}
+	go server.ListenAndServe() //nolint:errcheck // stops with the test process
+	credentialsFile := filepath.Join(t.TempDir(), "login", "registry.json")
+	t.Setenv("HELM_REGISTRY_CONFIG", credentialsFile)
+	client, err := helmregistry.NewClient(helmregistry.ClientOptCredentialsFile(credentialsFile), helmregistry.ClientOptPlainHTTP())
+	if err != nil {
+		t.Fatalf("creating registry client: %v", err)
+	}
+	if err := client.Login(server.RegistryURL,
+		helmregistry.LoginOptBasicAuth(server.TestUsername, server.TestPassword),
+		helmregistry.LoginOptPlainText(true),
+	); err != nil {
+		t.Fatalf("logging in: %v", err)
+	}
+
+	// When a publisher with no explicit credential reads the registry.
+	publisher := &OCIPublisher{RegistryURL: "oci://" + server.RegistryURL + "/charts", PlainHTTP: true}
+	versions, err := publisher.PublishedVersions("never-pushed")
+
+	// Then it authenticates with that login.
+	if err != nil {
+		t.Fatalf("listing with the HELM_REGISTRY_CONFIG login: %v", err)
+	}
+	if len(versions) != 0 {
+		t.Errorf("versions = %v, want none", versions)
 	}
 }
