@@ -68,6 +68,7 @@ type releaseOptions struct {
 	tagPrefix     string
 	authorName    string
 	authorEmail   string
+	maxFileBytes  int64
 }
 
 func newReleaseCmd() *cobra.Command {
@@ -104,6 +105,7 @@ and pushes it to the configured registry.`,
 	cmd.Flags().StringVar(&opts.tagPrefix, "tag-prefix", "", "Prefix for git tags, e.g. 'charts/'")
 	cmd.Flags().StringVar(&opts.authorName, "git-author-name", "helm-semver[bot]", "Git commit author name")
 	cmd.Flags().StringVar(&opts.authorEmail, "git-author-email", "helm-semver[bot]@users.noreply.github.com", "Git commit author email")
+	cmd.Flags().Int64Var(&opts.maxFileBytes, "max-file-bytes", 32*1024*1024, "Maximum size in bytes Helm's loader accepts for one file inside a chart (vendored dependency packages exceed Helm's 5 MiB default)")
 
 	_ = cmd.MarkFlagRequired("registry")
 
@@ -270,9 +272,10 @@ func newPublisher(opts *releaseOptions) (registry.Publisher, error) {
 	switch strings.ToLower(opts.registryType) {
 	case "oci":
 		return &registry.OCIPublisher{
-			RegistryURL: opts.registry,
-			Username:    opts.registryUser,
-			Password:    opts.registryPass,
+			RegistryURL:  opts.registry,
+			Username:     opts.registryUser,
+			Password:     opts.registryPass,
+			MaxFileBytes: opts.maxFileBytes,
 		}, nil
 	case "chartmuseum":
 		return &registry.ChartMuseumPublisher{
