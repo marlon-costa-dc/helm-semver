@@ -66,6 +66,15 @@ func Open(path string) (*Client, error) {
 	return &Client{repo: repo}, nil
 }
 
+// TagCommit returns the commit the tag name points at.
+func (c *Client) TagCommit(name string) (string, error) {
+	ref, err := c.repo.Tag(name)
+	if err != nil {
+		return "", fmt.Errorf("resolving tag %s: %w", name, err)
+	}
+	return c.tagTarget(ref).String(), nil
+}
+
 // HeadHash returns the commit HEAD points at: the release commit right after
 // a release, which the channel catalog records as the receipt of the version.
 func (c *Client) HeadHash() (string, error) {

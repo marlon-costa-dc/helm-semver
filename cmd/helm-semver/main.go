@@ -31,6 +31,7 @@ and optionally generates changelogs and GitHub Releases.`,
 
 	root.AddCommand(newReleaseCmd())
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newPromoteCmd())
 
 	return root
 }

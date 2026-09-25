@@ -58,6 +58,34 @@ func Record(path, chart string, entry Entry) error {
 	return nil
 }
 
+// Entries reads every chart entry the catalog at path records.
+func Entries(path string) (map[string]Entry, error) {
+	data, err := os.ReadFile(path) // #nosec // path comes from controlled CLI input
+	if err != nil {
+		return nil, fmt.Errorf("reading catalog %s: %w", path, err)
+	}
+	var doc struct {
+		Global struct {
+			Charts struct {
+				Releases map[string]struct {
+					Version string `yaml:"version"`
+					Digest  string `yaml:"digest"`
+					Repo    string `yaml:"repo"`
+					Commit  string `yaml:"commit"`
+				} `yaml:"releases"`
+			} `yaml:"charts"`
+		} `yaml:"global"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parsing catalog %s: %w", path, err)
+	}
+	entries := make(map[string]Entry, len(doc.Global.Charts.Releases))
+	for name, raw := range doc.Global.Charts.Releases {
+		entries[name] = Entry{Version: raw.Version, Digest: raw.Digest, Repo: raw.Repo, Commit: raw.Commit}
+	}
+	return entries, nil
+}
+
 // ensureMapping returns the mapping under key, creating it when absent.
 func ensureMapping(node *yaml.Node, key string) *yaml.Node {
 	for i := 0; i+1 < len(node.Content); i += 2 {

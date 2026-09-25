@@ -301,6 +301,16 @@ reaches the branch without the release that validated it. With `--catalog`,
 every published chart is recorded with the digest the registry confirmed and the
 release commit. The dry run asks the registry exactly as the release does.
 
+#### Promoting a channel
+
+`helm-semver promote --from <source catalog> --to <target catalog> --registry <url>`
+records, for every chart with a release tag reachable from HEAD, the newest such
+version in the target catalog, with the digest the registry holds and the tag's
+commit. Run on the branch that was promoted (for example `main` after a
+`develop → main` pull request). When the source catalog records the same version,
+its digest must equal the registry's, so the promoted artifact is the validated
+one. Nothing is rebuilt or pushed, and an unchanged branch changes nothing.
+
 #### Versions already in the registry
 
 The next version is derived from the chart's own `version:` and the conventional

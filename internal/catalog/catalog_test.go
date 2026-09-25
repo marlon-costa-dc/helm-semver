@@ -71,3 +71,24 @@ func TestRecord_RefusesAMissingOrNonMappingCatalog(t *testing.T) {
 		t.Error("an unparsable catalog was accepted")
 	}
 }
+
+func TestEntries_ReadsWhatRecordWrote(t *testing.T) {
+	path := writeFile(t, "global: {}\n")
+	want := Entry{Version: "1.2.3", Digest: "sha256:d", Repo: "acme/charts", Commit: "abc"}
+	if err := Record(path, "web", want); err != nil {
+		t.Fatalf("recording: %v", err)
+	}
+	got, err := Entries(path)
+	if err != nil {
+		t.Fatalf("reading: %v", err)
+	}
+	if got["web"] != want || len(got) != 1 {
+		t.Errorf("entries = %+v, want web=%+v", got, want)
+	}
+	if _, err := Entries(filepath.Join(t.TempDir(), "absent.yaml")); err == nil {
+		t.Error("a missing catalog was read")
+	}
+	if _, err := Entries(writeFile(t, "global: [\n")); err == nil {
+		t.Error("an unparsable catalog was read")
+	}
+}

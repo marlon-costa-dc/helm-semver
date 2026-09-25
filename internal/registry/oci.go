@@ -103,6 +103,20 @@ func (p *OCIPublisher) PushedDigest(chartName, version string) (string, error) {
 	return digest, nil
 }
 
+// ManifestDigest resolves the manifest digest the registry holds for
+// chartName at version.
+func (p *OCIPublisher) ManifestDigest(chartName, version string) (string, error) {
+	client, err := p.client()
+	if err != nil {
+		return "", err
+	}
+	descriptor, err := client.Resolve(p.repository(chartName) + ":" + version)
+	if err != nil {
+		return "", fmt.Errorf("resolving %s %s in %s: %w", chartName, version, p.RegistryURL, err)
+	}
+	return descriptor.Digest.String(), nil
+}
+
 // PublishedVersions lists the versions of chartName the registry holds.
 //
 // Only the registry's own NAME_UNKNOWN answer means "never published" and yields
