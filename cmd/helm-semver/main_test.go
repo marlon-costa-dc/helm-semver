@@ -57,7 +57,7 @@ func TestReleaseCmd_UnknownRegistryType(t *testing.T) {
 func TestMaxFileBytesCalibratesHelmLoader(t *testing.T) {
 	dir := t.TempDir()
 	meta := "apiVersion: v2\nname: bigfile\nversion: 0.1.0\ntype: application\n"
-	if err := os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte(meta), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte(meta), 0o600); err != nil {
 		t.Fatalf("writing Chart.yaml: %v", err)
 	}
 	// A real gzip member of 6 MiB: the loader validates the archive and
@@ -89,10 +89,10 @@ func TestMaxFileBytesCalibratesHelmLoader(t *testing.T) {
 	if err := gz.Close(); err != nil {
 		t.Fatalf("closing gzip: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "charts"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "charts"), 0o750); err != nil {
 		t.Fatalf("creating charts dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "charts", "bigdep-0.1.0.tgz"), buf.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "charts", "bigdep-0.1.0.tgz"), buf.Bytes(), 0o600); err != nil {
 		t.Fatalf("writing vendored package: %v", err)
 	}
 
