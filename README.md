@@ -301,6 +301,15 @@ reaches the branch without the release that validated it. With `--catalog`,
 every published chart is recorded with the digest the registry confirmed and the
 release commit. The dry run asks the registry exactly as the release does.
 
+#### Adopting running versions into a catalog
+
+`helm-semver catalog set --catalog <file> --chart <name> --version <X.Y.Z> --registry <url>
+[--cluster <name>]` records a version the registry already holds, with its manifest
+digest (and the release commit when its tag exists here). With `--cluster` the version
+applies to that cluster only (`releases.<chart>.clusters.<cluster>`), refining the
+channel entry. A later release or promotion of the chart writes the channel version and
+drops its cluster entries. Nothing is allocated, rebuilt or pushed.
+
 #### Promoting a channel
 
 `helm-semver promote --from <source catalog> --to <target catalog> --registry <url>`

@@ -92,3 +92,38 @@ func TestEntries_ReadsWhatRecordWrote(t *testing.T) {
 		t.Error("an unparsable catalog was read")
 	}
 }
+
+func TestRecordCluster_RefinesTheChannelEntryForOneCluster(t *testing.T) {
+	path := writeFile(t, "global: {}\n")
+	if err := Record(path, "web", Entry{Version: "1.0.0", Digest: "sha256:a", Repo: "acme/charts"}); err != nil {
+		t.Fatalf("recording channel: %v", err)
+	}
+	if err := RecordCluster(path, "web", "dc-prod", Entry{Version: "0.9.0", Digest: "sha256:b"}); err != nil {
+		t.Fatalf("recording cluster: %v", err)
+	}
+	got := read(t, path)
+	for _, want := range []string{"version: 1.0.0", "clusters:", "dc-prod:", "version: 0.9.0", "digest: sha256:b"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("catalog lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "commit:") {
+		t.Errorf("an empty receipt field was written:\n%s", got)
+	}
+	if err := Record(path, "web", Entry{Version: "1.1.0", Digest: "sha256:c"}); err != nil {
+		t.Fatalf("re-recording channel: %v", err)
+	}
+	if got := read(t, path); strings.Contains(got, "clusters:") {
+		t.Errorf("a new channel version kept the cluster overrides:\n%s", got)
+	}
+}
+
+func TestRecordCluster_RefusesAChartWithoutAChannelEntry(t *testing.T) {
+	path := writeFile(t, "global: {}\n")
+	if err := RecordCluster(path, "web", "dc-prod", Entry{Version: "0.9.0"}); err == nil {
+		t.Error("a cluster override without a channel entry was accepted")
+	}
+	if err := RecordCluster(filepath.Join(t.TempDir(), "absent.yaml"), "web", "dc-prod", Entry{}); err == nil {
+		t.Error("a missing catalog was accepted")
+	}
+}
