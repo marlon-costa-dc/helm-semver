@@ -29,10 +29,22 @@ type OCIPublisher struct {
 	Password string
 	// PlainHTTP talks to the registry over HTTP instead of HTTPS.
 	PlainHTTP bool
+	// MaxFileBytes caps one file inside a chart at load time. Helm's loader
+	// defaults to 5 MiB per file; composed umbrellas legitimately vendor
+	// dependency packages above that (and a consumer vendors the umbrella
+	// again), so the caller owns the limit. Zero keeps Helm's default.
+	MaxFileBytes int64
+	// pushed holds the manifest digest the registry confirmed per name:version.
+	pushed map[string]string
 }
 
 // Push packages the chart at chartDir and pushes it to the OCI registry.
 func (p *OCIPublisher) Push(chartDir, version string) error {
+	// Helm's loader refuses any single file inside a chart above its own
+	// 5 MiB default; the caller-owned limit takes precedence when set.
+	if p.MaxFileBytes > 0 {
+		helmchart.MaxDecompressedFileSize = p.MaxFileBytes
+	}
 	// Load chart metadata to extract the name.
 	ch, err := helmchart.Load(chartDir)
 	if err != nil {
@@ -66,11 +78,43 @@ func (p *OCIPublisher) Push(chartDir, version string) error {
 	}
 
 	ref := fmt.Sprintf("%s:%s", p.repository(filepath.Base(ch.Name())), version)
-	if _, err = client.Push(data, ref); err != nil {
+	result, err := client.Push(data, ref)
+	if err != nil {
 		return fmt.Errorf("pushing %s to %s: %w", ch.Name(), p.RegistryURL, err)
 	}
+	if result == nil || result.Manifest == nil || result.Manifest.Digest == "" {
+		return fmt.Errorf("pushing %s to %s: the registry answered no manifest digest", ch.Name(), p.RegistryURL)
+	}
+	if p.pushed == nil {
+		p.pushed = map[string]string{}
+	}
+	p.pushed[ch.Name()+":"+version] = result.Manifest.Digest
 
 	return nil
+}
+
+// PushedDigest returns the manifest digest the registry confirmed for the
+// chartName version this publisher pushed.
+func (p *OCIPublisher) PushedDigest(chartName, version string) (string, error) {
+	digest, ok := p.pushed[chartName+":"+version]
+	if !ok {
+		return "", fmt.Errorf("%s %s was not pushed by this release", chartName, version)
+	}
+	return digest, nil
+}
+
+// ManifestDigest resolves the manifest digest the registry holds for
+// chartName at version.
+func (p *OCIPublisher) ManifestDigest(chartName, version string) (string, error) {
+	client, err := p.client()
+	if err != nil {
+		return "", err
+	}
+	descriptor, err := client.Resolve(p.repository(chartName) + ":" + version)
+	if err != nil {
+		return "", fmt.Errorf("resolving %s %s in %s: %w", chartName, version, p.RegistryURL, err)
+	}
+	return descriptor.Digest.String(), nil
 }
 
 // PublishedVersions lists the versions of chartName the registry holds.

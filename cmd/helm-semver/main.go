@@ -31,6 +31,7 @@ and optionally generates changelogs and GitHub Releases.`,
 
 	root.AddCommand(newReleaseCmd())
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newPromoteCmd())
 
 	return root
 }
@@ -69,6 +70,9 @@ type releaseOptions struct {
 	tagPrefix       string
 	authorName      string
 	authorEmail     string
+	maxFileBytes    int64
+	validateCmd     string
+	catalog         string
 }
 
 func newReleaseCmd() *cobra.Command {
@@ -105,10 +109,13 @@ and pushes it to the configured registry.`,
 		panic(err)
 	}
 	cmd.Flags().StringVar(&opts.githubOwner, "github-owner", os.Getenv("GITHUB_REPOSITORY_OWNER"), "GitHub repository owner")
-	cmd.Flags().StringVar(&opts.githubRepo, "github-repo", "", "GitHub repository name")
+	cmd.Flags().StringVar(&opts.githubRepo, "github-repo", repositoryName(), "GitHub repository name (default: the name in GITHUB_REPOSITORY)")
 	cmd.Flags().StringVar(&opts.tagPrefix, "tag-prefix", "", "Prefix for git tags, e.g. 'charts/'")
 	cmd.Flags().StringVar(&opts.authorName, "git-author-name", "helm-semver[bot]", "Git commit author name")
 	cmd.Flags().StringVar(&opts.authorEmail, "git-author-email", "helm-semver[bot]@users.noreply.github.com", "Git commit author email")
+	cmd.Flags().StringVar(&opts.validateCmd, "validate-cmd", "", "Shell command run per chart after its parent pins are adopted and before it is published; HELM_SEMVER_CHART and HELM_SEMVER_CHART_DIR name the chart; a non-zero exit stops the release")
+	cmd.Flags().StringVar(&opts.catalog, "catalog", "", "Channel catalog YAML to record each published chart in (global.charts.releases.<chart>: version, digest, repo, commit)")
+	cmd.Flags().Int64Var(&opts.maxFileBytes, "max-file-bytes", 32*1024*1024, "Maximum size in bytes Helm's loader accepts for one file inside a chart (vendored dependency packages exceed Helm's 5 MiB default)")
 
 	_ = cmd.MarkFlagRequired("registry")
 
@@ -143,10 +150,11 @@ func newPublisher(opts *releaseOptions) (registry.Publisher, error) {
 	switch strings.ToLower(opts.registryType) {
 	case "oci":
 		return &registry.OCIPublisher{
-			RegistryURL: opts.registry,
-			Username:    opts.registryUser,
-			Password:    opts.registryPass,
-			PlainHTTP:   opts.registryHTTP,
+			RegistryURL:  opts.registry,
+			Username:     opts.registryUser,
+			Password:     opts.registryPass,
+			PlainHTTP:    opts.registryHTTP,
+			MaxFileBytes: opts.maxFileBytes,
 		}, nil
 	case "chartmuseum":
 		return &registry.ChartMuseumPublisher{
@@ -165,6 +173,13 @@ func newPublisher(opts *releaseOptions) (registry.Publisher, error) {
 }
 
 // findRepoRoot walks up from the current directory to find the git root.
+// repositoryName is the repository part of GITHUB_REPOSITORY (owner/name),
+// which GitHub Actions sets for every job.
+func repositoryName() string {
+	_, name, _ := strings.Cut(os.Getenv("GITHUB_REPOSITORY"), "/")
+	return name
+}
+
 func findRepoRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {

@@ -222,7 +222,7 @@ Release preview
     [dry-run] would push to oci://ghcr.io/my-org/helm-charts
     [dry-run] would tag observability-v0.2.0
     [dry-run] would update CHANGELOG.md
-  my-service: no releasable commits — skipping
+  my-service: unchanged since my-service-v0.4.0 — skipping
 ```
 
 ---
@@ -275,7 +275,41 @@ Flags:
   --tag-prefix string           Prefix for git tags
   --git-author-name string      Git commit author name (default "helm-semver[bot]")
   --git-author-email string     Git commit author email
+  --validate-cmd string         Shell command run per chart after its parent pins are adopted and
+                                before it is published (HELM_SEMVER_CHART, HELM_SEMVER_CHART_DIR)
+  --catalog string              Channel catalog YAML recording each published chart
+                                (global.charts.releases.<chart>: version, digest, repo, commit)
+  --max-file-bytes int          Maximum size of one file inside a chart for Helm's loader
+                                (default 33554432)
 ```
+
+#### Changed charts, parents first
+
+A chart is released when its directory differs from its last release tag; a
+chart whose tree matches its tag is never released. The conventional commits
+decide the bump, and a change none of them names is still a patch.
+
+Charts that depend on each other through the release registry are released
+parents first. Before a chart is validated and published, each internal
+dependency is pinned to the version this run publishes (when the parent is in
+the plan) or to the newest version the registry holds. A chart that is not
+changed is not touched, even when a parent it pins is released.
+
+Each chart is one transaction: pins, `--validate-cmd`, version bump, push,
+commit, tag and push. A failure before the push restores `Chart.yaml`, so no pin
+reaches the branch without the release that validated it. With `--catalog`,
+every published chart is recorded with the digest the registry confirmed and the
+release commit. The dry run asks the registry exactly as the release does.
+
+#### Promoting a channel
+
+`helm-semver promote --from <source catalog> --to <target catalog> --registry <url>`
+records, for every chart with a release tag reachable from HEAD, the newest such
+version in the target catalog, with the digest the registry holds and the tag's
+commit. Run on the branch that was promoted (for example `main` after a
+`develop → main` pull request). When the source catalog records the same version,
+its digest must equal the registry's, so the promoted artifact is the validated
+one. Nothing is rebuilt or pushed, and an unchanged branch changes nothing.
 
 #### Versions already in the registry
 
@@ -350,7 +384,7 @@ helm-semver version
 | `feat:` / `feat(scope):` | minor | `feat: add tempo datasource` |
 | `feat!:` / `BREAKING CHANGE` | major | `feat!: remove --registry-url flag` |
 
-The most significant bump across all commits since the last release tag wins. Commits not matching any prefix produce no release for that chart. Scoped commits (`feat(observability):`) are counted toward all charts unless you rely on the path-based change detection.
+The most significant bump across all commits since the last release tag wins. A chart whose tree changed with no matching commit is released as a patch. Scoped commits (`feat(observability):`) are counted toward all charts unless you rely on the path-based change detection.
 
 ---
 
