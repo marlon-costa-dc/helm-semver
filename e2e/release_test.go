@@ -1,5 +1,6 @@
 // Package e2e runs smoke tests against the compiled helm-semver binary using
-// a temporary git repository. No external services are required.
+// a temporary git repository and an in-process OCI registry. No external
+// services are required.
 package e2e
 
 import (
@@ -14,7 +15,30 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"helm.sh/helm/v3/pkg/repo/repotest"
 )
+
+// registryCommand builds a release command against an in-process OCI registry:
+// the dry run asks the registry which versions are taken, exactly as a real
+// release does, so it needs one it can reach.
+func registryCommand(t *testing.T, args ...string) *exec.Cmd {
+	t.Helper()
+	server, err := repotest.NewOCIServer(t, t.TempDir())
+	if err != nil {
+		t.Fatalf("starting OCI registry: %v", err)
+	}
+	go server.ListenAndServe() //nolint:errcheck // stops with the test process
+	full := append([]string{
+		"release",
+		"--registry", "oci://" + server.RegistryURL + "/charts",
+		"--registry-type", "oci",
+		"--registry-plain-http",
+		"--registry-username", server.TestUsername,
+	}, args...)
+	cmd := exec.Command(binaryPath(), full...) //nolint:gosec // args are test-internal constants
+	cmd.Env = append(os.Environ(), "REGISTRY_PASSWORD="+server.TestPassword)
+	return cmd
+}
 
 // binaryPath returns the path to the compiled binary.
 func binaryPath() string {
@@ -98,10 +122,7 @@ version: 0.1.0
 	}
 
 	// Run release in dry-run mode.
-	cmd := exec.Command(binaryPath(), //nolint:gosec // args are test-internal constants
-		"release",
-		"--registry", "oci://ghcr.io/test-org/helm-charts",
-		"--registry-type", "oci",
+	cmd := registryCommand(t,
 		"--charts-dir", "charts",
 		"--dry-run",
 		"--changelog=false",
@@ -164,10 +185,7 @@ func tagHead(t *testing.T, repo *gogit.Repository, name string) {
 
 func dryRun(t *testing.T, dir string) string {
 	t.Helper()
-	cmd := exec.Command(binaryPath(), //nolint:gosec // args are test-internal constants
-		"release",
-		"--registry", "oci://ghcr.io/test-org/helm-charts",
-		"--registry-type", "oci",
+	cmd := registryCommand(t,
 		"--charts-dir", "charts",
 		"--dry-run",
 		"--changelog=false",
