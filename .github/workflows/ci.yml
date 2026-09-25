@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   ci:
-    name: Test, Build & Smoke
+    # The check run must be named exactly `ci`: the main-branch ruleset
+    # requires that status check, and a renamed job can never satisfy it.
     runs-on: ubuntu-latest
 
     steps:
