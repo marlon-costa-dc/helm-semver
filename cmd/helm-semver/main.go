@@ -70,6 +70,8 @@ type releaseOptions struct {
 	authorName      string
 	authorEmail     string
 	maxFileBytes    int64
+	validateCmd     string
+	catalog         string
 }
 
 func newReleaseCmd() *cobra.Command {
@@ -110,6 +112,8 @@ and pushes it to the configured registry.`,
 	cmd.Flags().StringVar(&opts.tagPrefix, "tag-prefix", "", "Prefix for git tags, e.g. 'charts/'")
 	cmd.Flags().StringVar(&opts.authorName, "git-author-name", "helm-semver[bot]", "Git commit author name")
 	cmd.Flags().StringVar(&opts.authorEmail, "git-author-email", "helm-semver[bot]@users.noreply.github.com", "Git commit author email")
+	cmd.Flags().StringVar(&opts.validateCmd, "validate-cmd", "", "Shell command run per chart after its parent pins are adopted and before it is published; HELM_SEMVER_CHART and HELM_SEMVER_CHART_DIR name the chart; a non-zero exit stops the release")
+	cmd.Flags().StringVar(&opts.catalog, "catalog", "", "Channel catalog YAML to record each published chart in (global.charts.releases.<chart>: version, digest, repo, commit)")
 	cmd.Flags().Int64Var(&opts.maxFileBytes, "max-file-bytes", 32*1024*1024, "Maximum size in bytes Helm's loader accepts for one file inside a chart (vendored dependency packages exceed Helm's 5 MiB default)")
 
 	_ = cmd.MarkFlagRequired("registry")

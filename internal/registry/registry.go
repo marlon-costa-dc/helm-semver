@@ -19,6 +19,14 @@ type PushChecker interface {
 	CheckPush(chartName string) error
 }
 
+// DigestRecorder is implemented by backends whose push answers the digest the
+// registry stored, so a release can record exactly what it published.
+type DigestRecorder interface {
+	// PushedDigest returns the manifest digest the registry confirmed for the
+	// chartName version this publisher pushed; an error when it pushed none.
+	PushedDigest(chartName, version string) (string, error)
+}
+
 // VersionLister is implemented by backends that can answer which versions of a
 // chart are already published.
 //

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -128,6 +129,11 @@ func ociRegistry(t *testing.T, denied ...string) *registry.OCIPublisher {
 				return
 			}
 		}
+		// A logged-in client: the release job logs Helm in before it runs, so
+		// every request here carries the registry credential.
+		if r.Header.Get("Authorization") == "" {
+			r.SetBasicAuth(server.TestUsername, server.TestPassword)
+		}
 		proxy.ServeHTTP(w, r)
 	}))
 	t.Cleanup(front.Close)
@@ -161,7 +167,7 @@ func TestReleaseRunner_JSONPlanListsTheReleasesOnStdout(t *testing.T) {
 		Chart: "web", Path: "charts/web", LastTag: "web-v0.1.0",
 		CurrentVersion: "0.1.0", Version: "0.2.0", Bump: "minor", Tag: "web-v0.2.0",
 	}}
-	if got := plan["releases"]; len(got) != 1 || got[0] != want[0] {
+	if got := plan["releases"]; !reflect.DeepEqual(got, want) {
 		t.Errorf("plan = %+v, want %+v", got, want)
 	}
 	if !strings.Contains(stderr.String(), "web: 0.1.0 → 0.2.0 (minor)") {

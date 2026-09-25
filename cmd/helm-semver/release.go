@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/rhysmcneill/helm-semver/internal/catalog"
 	"github.com/rhysmcneill/helm-semver/internal/changelog"
 	"github.com/rhysmcneill/helm-semver/internal/chart"
 	igit "github.com/rhysmcneill/helm-semver/internal/git"
@@ -26,6 +28,8 @@ type releaseRunner struct {
 	gitClient *igit.Client
 	publisher registry.Publisher
 	repoRoot  string
+	// newest memoizes the newest published version per chart within this run.
+	newest map[string]string
 }
 
 type chartRelease struct {
@@ -34,6 +38,8 @@ type chartRelease struct {
 	relPath string
 	lastTag string
 	commits []igit.CommitInfo
+	// internal names the dependencies this release owns (see internalDependencies).
+	internal []string
 }
 
 // plannedRelease is one chart the run will release, with the version decided
@@ -44,17 +50,20 @@ type plannedRelease struct {
 	version        string
 	bump           semver.BumpType
 	tag            string
+	// pins is the version each internal dependency adopts before validation.
+	pins map[string]string
 }
 
 // planEntry is the machine-readable form of a planned release (--output json).
 type planEntry struct {
-	Chart          string `json:"chart"`
-	Path           string `json:"path"`
-	LastTag        string `json:"lastTag"`
-	CurrentVersion string `json:"currentVersion"`
-	Version        string `json:"version"`
-	Bump           string `json:"bump"`
-	Tag            string `json:"tag"`
+	Chart          string            `json:"chart"`
+	Path           string            `json:"path"`
+	LastTag        string            `json:"lastTag"`
+	CurrentVersion string            `json:"currentVersion"`
+	Version        string            `json:"version"`
+	Bump           string            `json:"bump"`
+	Tag            string            `json:"tag"`
+	Pins           map[string]string `json:"pins,omitempty"`
 }
 
 // run decides every release first, asks the registry whether it accepts each
@@ -62,6 +71,14 @@ type planEntry struct {
 // as soon as it is in the registry. A refusal therefore costs nothing, and a
 // later failure leaves every earlier release published and tagged.
 func (runner *releaseRunner) run() error {
+	if runner.newest == nil {
+		runner.newest = map[string]string{}
+	}
+	if runner.options.catalog != "" {
+		if _, ok := runner.publisher.(registry.DigestRecorder); !ok {
+			return fmt.Errorf("--catalog needs a backend that answers the pushed digest; %s does not", runner.options.registryType)
+		}
+	}
 	candidates, err := runner.findCandidates()
 	if err != nil {
 		return err
@@ -161,7 +178,11 @@ func (runner *releaseRunner) findCandidate(chartsDir, chartName string) (chartRe
 		_, _ = fmt.Fprintf(runner.progress(), "  %s: unchanged since %s — skipping\n", chartName, lastTag)
 		return chartRelease{}, false, nil
 	}
-	return chartRelease{name: chartName, dir: chartDir, relPath: relPath, lastTag: lastTag}, true, nil
+	internal, err := runner.internalDependencies(chartDir)
+	if err != nil {
+		return chartRelease{}, false, fmt.Errorf("reading dependencies of %s: %w", chartName, err)
+	}
+	return chartRelease{name: chartName, dir: chartDir, relPath: relPath, lastTag: lastTag, internal: internal}, true, nil
 }
 
 func (runner *releaseRunner) collectCommits(candidates []chartRelease) error {
@@ -179,9 +200,11 @@ func (runner *releaseRunner) collectCommits(candidates []chartRelease) error {
 	return nil
 }
 
-// plan decides the version of every releasable candidate. A dry run makes no
-// network call and previews the version derived from the commits; only a real
-// release asks the registry what is already taken.
+// plan decides the version of every changed chart and the parent versions it
+// adopts. A chart whose tree differs from its last tag is changed: its commits
+// decide the bump, and a change no conventional commit names is still a patch.
+// The dry run asks the registry exactly as the release does, so the plan it
+// prints is the plan the release executes.
 func (runner *releaseRunner) plan(candidates []chartRelease) ([]plannedRelease, error) {
 	out := runner.progress()
 	plan := make([]plannedRelease, 0, len(candidates))
@@ -192,18 +215,15 @@ func (runner *releaseRunner) plan(candidates []chartRelease) ([]plannedRelease, 
 		}
 		bump := semver.Analyze(igit.Subjects(candidate.commits))
 		if bump == semver.BumpNone {
-			_, _ = fmt.Fprintf(out, "  %s: no releasable commits — skipping\n", candidate.name)
-			continue
+			bump = semver.BumpPatch
 		}
 		version, err := semver.Next(metadata.Version, bump)
 		if err != nil {
 			return nil, fmt.Errorf("computing next version for %s: %w", candidate.name, err)
 		}
-		if !runner.options.dryRun {
-			version, err = runner.nextFreeVersion(metadata.Name, version)
-			if err != nil {
-				return nil, err
-			}
+		version, err = runner.nextFreeVersion(metadata.Name, version)
+		if err != nil {
+			return nil, err
 		}
 		planned := plannedRelease{
 			chartRelease: candidate, currentVersion: metadata.Version, version: version, bump: bump,
@@ -222,7 +242,22 @@ func (runner *releaseRunner) plan(candidates []chartRelease) ([]plannedRelease, 
 		}
 		plan = append(plan, planned)
 	}
-	return plan, nil
+	ordered, err := orderPlan(plan)
+	if err != nil {
+		return nil, err
+	}
+	plannedVersions := make(map[string]string, len(ordered))
+	for _, planned := range ordered {
+		plannedVersions[planned.name] = planned.version
+	}
+	for index := range ordered {
+		pins, err := runner.pinsFor(ordered[index], plannedVersions)
+		if err != nil {
+			return nil, err
+		}
+		ordered[index].pins = pins
+	}
+	return ordered, nil
 }
 
 // preflight asks the registry, before the first push, whether it accepts every
@@ -248,7 +283,7 @@ func (runner *releaseRunner) writePlan(plan []plannedRelease) error {
 		entries = append(entries, planEntry{
 			Chart: planned.name, Path: filepath.ToSlash(planned.relPath), LastTag: planned.lastTag,
 			CurrentVersion: planned.currentVersion, Version: planned.version,
-			Bump: planned.bump.String(), Tag: planned.tag,
+			Bump: planned.bump.String(), Tag: planned.tag, Pins: planned.pins,
 		})
 	}
 	encoder := json.NewEncoder(runner.command.OutOrStdout())
@@ -259,13 +294,41 @@ func (runner *releaseRunner) writePlan(plan []plannedRelease) error {
 	return nil
 }
 
+// releaseChart publishes one chart as one transaction: adopt the parent pins,
+// validate, bump, push, commit, tag, push and record in the catalog. Until the
+// push succeeds any failure restores Chart.yaml, so no pin reaches the branch
+// without the release that validated it.
 func (runner *releaseRunner) releaseChart(planned plannedRelease) error {
 	out := runner.progress()
-	if err := chart.BumpVersion(filepath.Join(planned.dir, "Chart.yaml"), planned.version); err != nil {
-		return fmt.Errorf("bumping version for %s: %w", planned.name, err)
+	chartYAML := filepath.Join(planned.dir, "Chart.yaml")
+	original, err := os.ReadFile(chartYAML) // #nosec
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", chartYAML, err)
+	}
+	restore := func(cause error) error {
+		if err := os.WriteFile(chartYAML, original, 0o644); err != nil { // #nosec
+			return errors.Join(cause, fmt.Errorf("restoring %s: %w", chartYAML, err))
+		}
+		return cause
+	}
+	for parent, version := range planned.pins {
+		if err := runner.confirmPublished(parent, version); err != nil {
+			return fmt.Errorf("%s: %w", planned.name, err)
+		}
+	}
+	if len(planned.pins) > 0 {
+		if _, err := chart.SetDependencyVersions(chartYAML, planned.pins); err != nil {
+			return restore(fmt.Errorf("pinning parents of %s: %w", planned.name, err))
+		}
+	}
+	if err := runner.validate(planned, out); err != nil {
+		return restore(err)
+	}
+	if err := chart.BumpVersion(chartYAML, planned.version); err != nil {
+		return restore(fmt.Errorf("bumping version for %s: %w", planned.name, err))
 	}
 	if err := runner.publish(planned, out); err != nil {
-		return err
+		return restore(err)
 	}
 	_, _ = fmt.Fprintf(out, "    pushed to %s\n", runner.options.registry)
 	released := []string{filepath.Join(planned.relPath, "Chart.yaml")}
@@ -292,7 +355,58 @@ func (runner *releaseRunner) releaseChart(planned plannedRelease) error {
 		}
 		_, _ = fmt.Fprintf(out, "    pushed the release commit and %s\n", planned.tag)
 	}
+	if err := runner.recordCatalog(planned, out); err != nil {
+		return err
+	}
 	return runner.createGitHubRelease(planned.chartRelease, planned.version, planned.tag)
+}
+
+// validate runs the project's gate for the chart after its parents are pinned
+// and before anything is published. The chart travels in the environment
+// (HELM_SEMVER_CHART, HELM_SEMVER_CHART_DIR); a non-zero exit stops the run.
+func (runner *releaseRunner) validate(planned plannedRelease, out io.Writer) error {
+	if runner.options.validateCmd == "" {
+		return nil
+	}
+	command := exec.Command("sh", "-c", runner.options.validateCmd) // #nosec // operator-declared gate
+	command.Dir = runner.repoRoot
+	command.Env = append(os.Environ(),
+		"HELM_SEMVER_CHART="+planned.name,
+		"HELM_SEMVER_CHART_DIR="+planned.dir,
+	)
+	command.Stdout = out
+	command.Stderr = runner.command.ErrOrStderr()
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("validating %s before release: %w", planned.name, err)
+	}
+	_, _ = fmt.Fprintf(out, "    validated %s against its pinned parents\n", planned.name)
+	return nil
+}
+
+// recordCatalog writes the published version, the digest the registry
+// confirmed and the release commit into the channel catalog.
+func (runner *releaseRunner) recordCatalog(planned plannedRelease, out io.Writer) error {
+	if runner.options.catalog == "" {
+		return nil
+	}
+	recorder := runner.publisher.(registry.DigestRecorder)
+	digest, err := recorder.PushedDigest(planned.name, planned.version)
+	if err != nil {
+		return fmt.Errorf("recording %s in the catalog: %w", planned.name, err)
+	}
+	commit, err := runner.gitClient.HeadHash()
+	if err != nil {
+		return fmt.Errorf("recording %s in the catalog: %w", planned.name, err)
+	}
+	entry := catalog.Entry{
+		Version: planned.version, Digest: digest,
+		Repo: runner.options.githubOwner + "/" + runner.options.githubRepo, Commit: commit,
+	}
+	if err := catalog.Record(runner.options.catalog, planned.name, entry); err != nil {
+		return fmt.Errorf("recording %s in the catalog: %w", planned.name, err)
+	}
+	_, _ = fmt.Fprintf(out, "    recorded %s %s in %s\n", planned.name, planned.version, runner.options.catalog)
+	return nil
 }
 
 // publish packages and pushes one chart. The dependencies it builds for the
