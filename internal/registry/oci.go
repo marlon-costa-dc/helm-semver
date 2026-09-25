@@ -29,10 +29,20 @@ type OCIPublisher struct {
 	Password string
 	// PlainHTTP talks to the registry over HTTP instead of HTTPS.
 	PlainHTTP bool
+	// MaxFileBytes caps one file inside a chart at load time. Helm's loader
+	// defaults to 5 MiB per file; composed umbrellas legitimately vendor
+	// dependency packages above that (and a consumer vendors the umbrella
+	// again), so the caller owns the limit. Zero keeps Helm's default.
+	MaxFileBytes int64
 }
 
 // Push packages the chart at chartDir and pushes it to the OCI registry.
 func (p *OCIPublisher) Push(chartDir, version string) error {
+	// Helm's loader refuses any single file inside a chart above its own
+	// 5 MiB default; the caller-owned limit takes precedence when set.
+	if p.MaxFileBytes > 0 {
+		helmchart.MaxDecompressedFileSize = p.MaxFileBytes
+	}
 	// Load chart metadata to extract the name.
 	ch, err := helmchart.Load(chartDir)
 	if err != nil {
