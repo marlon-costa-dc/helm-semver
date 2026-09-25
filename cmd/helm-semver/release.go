@@ -75,6 +75,9 @@ func (runner *releaseRunner) run() error {
 		runner.newest = map[string]string{}
 	}
 	if runner.options.catalog != "" {
+		if runner.options.githubOwner == "" || runner.options.githubRepo == "" {
+			return fmt.Errorf("the catalog receipt names the source repository: set --github-owner and --github-repo")
+		}
 		if _, ok := runner.publisher.(registry.DigestRecorder); !ok {
 			return fmt.Errorf("--catalog needs a backend that answers the pushed digest; %s does not", runner.options.registryType)
 		}

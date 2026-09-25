@@ -109,7 +109,7 @@ and pushes it to the configured registry.`,
 		panic(err)
 	}
 	cmd.Flags().StringVar(&opts.githubOwner, "github-owner", os.Getenv("GITHUB_REPOSITORY_OWNER"), "GitHub repository owner")
-	cmd.Flags().StringVar(&opts.githubRepo, "github-repo", "", "GitHub repository name")
+	cmd.Flags().StringVar(&opts.githubRepo, "github-repo", repositoryName(), "GitHub repository name (default: the name in GITHUB_REPOSITORY)")
 	cmd.Flags().StringVar(&opts.tagPrefix, "tag-prefix", "", "Prefix for git tags, e.g. 'charts/'")
 	cmd.Flags().StringVar(&opts.authorName, "git-author-name", "helm-semver[bot]", "Git commit author name")
 	cmd.Flags().StringVar(&opts.authorEmail, "git-author-email", "helm-semver[bot]@users.noreply.github.com", "Git commit author email")
@@ -173,6 +173,13 @@ func newPublisher(opts *releaseOptions) (registry.Publisher, error) {
 }
 
 // findRepoRoot walks up from the current directory to find the git root.
+// repositoryName is the repository part of GITHUB_REPOSITORY (owner/name),
+// which GitHub Actions sets for every job.
+func repositoryName() string {
+	_, name, _ := strings.Cut(os.Getenv("GITHUB_REPOSITORY"), "/")
+	return name
+}
+
 func findRepoRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {

@@ -52,7 +52,7 @@ Nothing is rebuilt or pushed.`,
 	cmd.Flags().BoolVar(&opts.registryHTTP, "registry-plain-http", false, "Talk to the registry over HTTP instead of HTTPS")
 	cmd.Flags().StringVar(&opts.tagPrefix, "tag-prefix", "", "Prefix for git tags, e.g. 'charts/'")
 	cmd.Flags().StringVar(&opts.githubOwner, "github-owner", os.Getenv("GITHUB_REPOSITORY_OWNER"), "GitHub repository owner")
-	cmd.Flags().StringVar(&opts.githubRepo, "github-repo", "", "GitHub repository name")
+	cmd.Flags().StringVar(&opts.githubRepo, "github-repo", repositoryName(), "GitHub repository name (default: the name in GITHUB_REPOSITORY)")
 	for _, name := range []string{"from", "to", "registry"} {
 		_ = cmd.MarkFlagRequired(name)
 	}
@@ -76,6 +76,9 @@ func runPromote(cmd *cobra.Command, opts *promoteOptions) error {
 }
 
 func promote(cmd *cobra.Command, opts *promoteOptions, root string, gitClient *igit.Client, resolver registry.DigestResolver) error {
+	if opts.githubOwner == "" || opts.githubRepo == "" {
+		return fmt.Errorf("the catalog receipt names the source repository: set --github-owner and --github-repo")
+	}
 	source, err := catalog.Entries(opts.from)
 	if err != nil {
 		return fmt.Errorf("reading the source catalog: %w", err)

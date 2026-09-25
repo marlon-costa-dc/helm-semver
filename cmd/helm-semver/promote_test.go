@@ -90,10 +90,36 @@ func TestPromote_RefusesADigestTheSourceChannelDidNotValidate(t *testing.T) {
 	}
 
 	// When the branch is promoted.
-	err = promote(&cobra.Command{}, &promoteOptions{chartsDir: "charts", from: develop, to: writeCatalog(t)}, cr.root, gitClient, publisher)
+	err = promote(&cobra.Command{}, &promoteOptions{
+		chartsDir: "charts", from: develop, to: writeCatalog(t), githubOwner: "acme", githubRepo: "charts",
+	}, cr.root, gitClient, publisher)
 
 	// Then the promotion is refused naming the chart.
 	if err == nil || !strings.Contains(err.Error(), "lib 0.2.0") {
 		t.Fatalf("promote error = %v, want the lib digest mismatch", err)
+	}
+}
+
+func TestCatalog_RefusesAReceiptWithoutTheSourceRepository(t *testing.T) {
+	// Given a release and a promotion asked to write a catalog with no repository name.
+	t.Setenv("GITHUB_REPOSITORY", "")
+	cr := newChartRepo(t, "web")
+	var stdout, stderr bytes.Buffer
+	err := cr.runner(t, &releaseOptions{
+		registry: "oci://registry.example/charts", registryType: "oci", catalog: writeCatalog(t), githubOwner: "acme",
+	}, ociRegistry(t), &stdout, &stderr).run()
+	if err == nil || !strings.Contains(err.Error(), "--github-repo") {
+		t.Errorf("release error = %v, want the missing repository", err)
+	}
+	err = promote(&cobra.Command{}, &promoteOptions{githubOwner: "acme"}, cr.root, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "--github-repo") {
+		t.Errorf("promote error = %v, want the missing repository", err)
+	}
+	if repositoryName() != "" {
+		t.Error("an empty GITHUB_REPOSITORY named a repository")
+	}
+	t.Setenv("GITHUB_REPOSITORY", "acme/charts")
+	if got := repositoryName(); got != "charts" {
+		t.Errorf("repositoryName = %q, want charts", got)
 	}
 }
