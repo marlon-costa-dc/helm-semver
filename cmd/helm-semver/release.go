@@ -459,7 +459,7 @@ func (runner *releaseRunner) nextFreeVersion(chartName, version string) (string,
 		if err != nil {
 			return "", fmt.Errorf("advancing past published %s %s: %w", chartName, version, err)
 		}
-		_, _ = fmt.Fprintf(runner.command.OutOrStdout(),
+		_, _ = fmt.Fprintf(runner.progress(),
 			"  %s: %s is already published — advancing to %s\n", chartName, version, next)
 		version = next
 	}
@@ -489,6 +489,6 @@ func (runner *releaseRunner) createGitHubRelease(candidate chartRelease, newVers
 	if err != nil {
 		return fmt.Errorf("creating GitHub release for %s: %w", newTag, err)
 	}
-	_, _ = fmt.Fprintf(runner.command.OutOrStdout(), "    GitHub Release: %s\n", url)
+	_, _ = fmt.Fprintf(runner.progress(), "    GitHub Release: %s\n", url)
 	return nil
 }
