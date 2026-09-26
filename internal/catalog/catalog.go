@@ -26,34 +26,82 @@ type Entry struct {
 // catalog must already exist: its location belongs to the channel, and a
 // missing file means the release was pointed at the wrong checkout.
 func Record(path, chart string, entry Entry) error {
+	doc, err := readCatalog(path)
+	if err != nil {
+		return err
+	}
+	releases := ensureMapping(ensureMapping(ensureMapping(doc.Content[0], "global"), "charts"), "releases")
+	setMapping(releases, chart, entryNode(entry))
+	return writeCatalog(path, doc)
+}
+
+// RecordCluster writes the version one cluster of the channel runs for chart,
+// under releases.<chart>.clusters.<cluster>. The channel entry must exist: a
+// cluster override refines a channel version, it never stands alone.
+func RecordCluster(path, chart, cluster string, entry Entry) error {
+	doc, err := readCatalog(path)
+	if err != nil {
+		return err
+	}
+	releases := ensureMapping(ensureMapping(ensureMapping(doc.Content[0], "global"), "charts"), "releases")
+	channel := mappingValue(releases, chart)
+	if channel == nil {
+		return fmt.Errorf("catalog %s: %s has no channel entry to refine for %s", path, chart, cluster)
+	}
+	setMapping(ensureMapping(channel, "clusters"), cluster, entryNode(entry))
+	return writeCatalog(path, doc)
+}
+
+func readCatalog(path string) (*yaml.Node, error) {
 	data, err := os.ReadFile(path) // #nosec // path comes from controlled CLI input
 	if err != nil {
-		return fmt.Errorf("reading catalog %s: %w", path, err)
+		return nil, fmt.Errorf("reading catalog %s: %w", path, err)
 	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("parsing catalog %s: %w", path, err)
+		return nil, fmt.Errorf("parsing catalog %s: %w", path, err)
 	}
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return fmt.Errorf("catalog %s: expected a mapping document", path)
+		return nil, fmt.Errorf("catalog %s: expected a mapping document", path)
 	}
-	releases := ensureMapping(ensureMapping(ensureMapping(doc.Content[0], "global"), "charts"), "releases")
+	return &doc, nil
+}
+
+// entryNode renders an entry; empty receipt fields are omitted, never written
+// as empty strings.
+func entryNode(entry Entry) *yaml.Node {
 	value := &yaml.Node{Kind: yaml.MappingNode}
 	for _, field := range [][2]string{
 		{"version", entry.Version}, {"digest", entry.Digest}, {"repo", entry.Repo}, {"commit", entry.Commit},
 	} {
+		if field[1] == "" {
+			continue
+		}
 		value.Content = append(value.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Value: field[0]},
 			&yaml.Node{Kind: yaml.ScalarNode, Value: field[1]},
 		)
 	}
-	setMapping(releases, chart, value)
-	out, err := yaml.Marshal(&doc)
+	return value
+}
+
+func writeCatalog(path string, doc *yaml.Node) error {
+	out, err := yaml.Marshal(doc)
 	if err != nil {
 		return fmt.Errorf("marshalling catalog %s: %w", path, err)
 	}
 	if err := os.WriteFile(path, out, 0o644); err != nil { // #nosec
 		return fmt.Errorf("writing catalog %s: %w", path, err)
+	}
+	return nil
+}
+
+// mappingValue returns the value of key in a mapping node, or nil.
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
 	}
 	return nil
 }
@@ -86,10 +134,14 @@ func Entries(path string) (map[string]Entry, error) {
 	return entries, nil
 }
 
-// ensureMapping returns the mapping under key, creating it when absent.
+// ensureMapping returns the mapping under key, creating it when absent. Every
+// mapping the catalog writes into is block style, so an empty `releases: {}`
+// grows into a reviewable file, not one flow line.
 func ensureMapping(node *yaml.Node, key string) *yaml.Node {
+	node.Style &^= yaml.FlowStyle
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		if node.Content[i].Value == key {
+			node.Content[i+1].Style &^= yaml.FlowStyle
 			return node.Content[i+1]
 		}
 	}
