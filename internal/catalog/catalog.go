@@ -7,6 +7,7 @@
 package catalog
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 
@@ -86,11 +87,16 @@ func entryNode(entry Entry) *yaml.Node {
 }
 
 func writeCatalog(path string, doc *yaml.Node) error {
-	out, err := yaml.Marshal(doc)
-	if err != nil {
+	var out bytes.Buffer
+	encoder := yaml.NewEncoder(&out)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(doc); err != nil {
 		return fmt.Errorf("marshalling catalog %s: %w", path, err)
 	}
-	if err := os.WriteFile(path, out, 0o644); err != nil { // #nosec
+	if err := encoder.Close(); err != nil {
+		return fmt.Errorf("closing catalog encoder %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, out.Bytes(), 0o644); err != nil { // #nosec
 		return fmt.Errorf("writing catalog %s: %w", path, err)
 	}
 	return nil
