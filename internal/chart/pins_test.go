@@ -69,6 +69,39 @@ func TestSetDependencyVersions_RewritesOnlyTheNamedPins(t *testing.T) {
 	}
 }
 
+const aliasedChart = `apiVersion: v2
+name: app
+version: 0.1.0
+dependencies:
+  - name: lib
+    version: "0.1.0"
+    repository: oci://registry.example/charts
+  - name: redis
+    version: 18.0.0
+    repository: https://charts.example
+  - name: lib
+    alias: databases
+    version: "0.1.0"
+    repository: oci://registry.example/charts
+`
+
+func TestSetDependencyVersions_PinsEveryAliasedEntryOfTheDependency(t *testing.T) {
+	path := chartFile(t, aliasedChart)
+
+	changed, err := SetDependencyVersions(path, map[string]string{"lib": "0.3.0"})
+	if err != nil || !changed {
+		t.Fatalf("pinning: changed=%v err=%v", changed, err)
+	}
+
+	deps, err := Dependencies(path)
+	if err != nil {
+		t.Fatalf("reading: %v", err)
+	}
+	if deps[0].Version != "0.3.0" || deps[1].Version != "18.0.0" || deps[2].Version != "0.3.0" || deps[2].Alias != "databases" {
+		t.Errorf("pins = %+v, want both lib entries at 0.3.0", deps)
+	}
+}
+
 func TestSetDependencyVersions_RefusesWhatTheChartDoesNotDeclare(t *testing.T) {
 	cases := map[string]struct {
 		content string
