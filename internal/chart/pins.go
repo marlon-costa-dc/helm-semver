@@ -31,9 +31,11 @@ func Dependencies(path string) ([]Dependency, error) {
 	return declared.Dependencies, nil
 }
 
-// SetDependencyVersions rewrites the version of each named dependency and
-// nothing else, preserving comments and field order. It reports whether the
-// file changed; naming a dependency the chart does not declare is an error.
+// SetDependencyVersions rewrites the version of every entry of each named
+// dependency and nothing else, preserving comments and field order. A chart
+// may declare one dependency several times under different aliases; each of
+// those entries adopts the pin. It reports whether the file changed; naming a
+// dependency the chart does not declare is an error.
 func SetDependencyVersions(path string, versions map[string]string) (bool, error) {
 	data, err := os.ReadFile(path) // #nosec
 	if err != nil {
@@ -50,9 +52,9 @@ func SetDependencyVersions(path string, versions map[string]string) (bool, error
 	if deps == nil || deps.Kind != yaml.SequenceNode {
 		return false, fmt.Errorf("%s: no dependencies sequence to pin", path)
 	}
-	remaining := make(map[string]string, len(versions))
-	for name, version := range versions {
-		remaining[name] = version
+	remaining := make(map[string]struct{}, len(versions))
+	for name := range versions {
+		remaining[name] = struct{}{}
 	}
 	changed := false
 	for _, entry := range deps.Content {
@@ -60,7 +62,7 @@ func SetDependencyVersions(path string, versions map[string]string) (bool, error
 		if nameNode == nil {
 			continue
 		}
-		version, wanted := remaining[nameNode.Value]
+		version, wanted := versions[nameNode.Value]
 		if !wanted {
 			continue
 		}
