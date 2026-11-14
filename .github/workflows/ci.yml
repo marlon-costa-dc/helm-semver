@@ -2,26 +2,20 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dc-use]
   pull_request:
-    branches: [main]
+    branches: [main, dc-use]
 
 permissions:
   contents: read
 
 jobs:
   ci:
-    # The check run must be named exactly `ci`: the main-branch ruleset
-    # requires that status check, and a renamed job can never satisfy it.
+    name: Test, Build & Smoke
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # The codecov action verifies its binary with gpg; the runner image
-      # does not carry it, so the supply-chain check installs it here.
-      - name: Install gpg for the codecov binary verification
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq gnupg
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -48,18 +42,19 @@ jobs:
           retention-days: 7
 
       - name: Upload coverage to Codecov
-        # Skip for dependabot PRs — they cannot access secrets. The upload is
-        # telemetry: the quality gate on coverage is the go-test-coverage step
-        # above, so a wrapper/runner mismatch (v7 requires gpg on PATH in a way
-        # even the preinstalled runner image fails to satisfy) must not fail CI.
-        if: github.actor != 'dependabot[bot]'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        # An external-token upload: it runs only where its token exists. Without
+        # CODECOV_TOKEN (dependabot, or a fork that never configured one) the step
+        # is NOT EXECUTED — never reported green, and never a failure of the tests.
+        if: env.CODECOV_TOKEN != ''
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.out
           flags: unittests
           name: helm-semver
-          fail_ci_if_error: false
+          fail_ci_if_error: true
 
       - name: Build
         run: make build
@@ -82,3 +77,13 @@ jobs:
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: latest
+
+  # The integration branch requires a status check named `ci`. GitHub reports a
+  # check under the job's display name, and the jobs above keep upstream's names,
+  # so this job carries the required name and passes only when both of them do.
+  required:
+    name: ci
+    runs-on: ubuntu-latest
+    needs: [ci, lint]
+    steps:
+      - run: echo "Test, Build & Smoke and Lint passed"

@@ -18,20 +18,13 @@ type OCIPublisher struct {
 	// Username and Password for registry authentication.
 	Username string
 	Password string
-	// MaxFileBytes caps one file inside a chart at load time. Helm's loader
-	// defaults to 5 MiB per file; composed umbrellas legitimately vendor
-	// dependency packages above that (and a consumer vendors the umbrella
-	// again), so the caller owns the limit. Zero keeps Helm's default.
-	MaxFileBytes int64
+	// PlainHTTP disables TLS for the registry connection, e.g. for an
+	// in-cluster registry reached over a Service DNS name with no cert.
+	PlainHTTP bool
 }
 
 // Push packages the chart at chartDir and pushes it to the OCI registry.
 func (p *OCIPublisher) Push(chartDir, version string) error {
-	// Helm's loader refuses any single file inside a chart above its own
-	// 5 MiB default; the caller-owned limit takes precedence when set.
-	if p.MaxFileBytes > 0 {
-		helmchart.MaxDecompressedFileSize = p.MaxFileBytes
-	}
 	// Load chart metadata to extract the name.
 	ch, err := helmchart.Load(chartDir)
 	if err != nil {
@@ -59,6 +52,9 @@ func (p *OCIPublisher) Push(chartDir, version string) error {
 		clientOpts = append(clientOpts,
 			helmregistry.ClientOptBasicAuth(p.Username, p.Password),
 		)
+	}
+	if p.PlainHTTP {
+		clientOpts = append(clientOpts, helmregistry.ClientOptPlainHTTP())
 	}
 	client, err := helmregistry.NewClient(clientOpts...)
 	if err != nil {

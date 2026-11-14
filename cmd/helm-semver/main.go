@@ -58,6 +58,7 @@ type releaseOptions struct {
 	registryType  string
 	registryUser  string
 	registryPass  string
+	registryPlain bool
 	gitPush       bool
 	dryRun        bool
 	changelog     bool
@@ -68,7 +69,6 @@ type releaseOptions struct {
 	tagPrefix     string
 	authorName    string
 	authorEmail   string
-	maxFileBytes  int64
 }
 
 func newReleaseCmd() *cobra.Command {
@@ -90,6 +90,7 @@ and pushes it to the configured registry.`,
 	cmd.Flags().StringVar(&opts.registryType, "registry-type", "oci", "Registry type: oci, chartmuseum, github-pages")
 	cmd.Flags().StringVar(&opts.registryUser, "registry-username", "", "Registry username")
 	cmd.Flags().StringVar(&opts.registryPass, "registry-password", os.Getenv("REGISTRY_PASSWORD"), "Registry password (env: REGISTRY_PASSWORD)")
+	cmd.Flags().BoolVar(&opts.registryPlain, "registry-plain-http", false, "Use plain HTTP (no TLS) for OCI registry pushes, e.g. an in-cluster registry reached over a Service DNS name")
 	cmd.Flags().BoolVar(&opts.gitPush, "git-push", true, "Push version bump commit and tags")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Print what would happen without making any changes")
 	cmd.Flags().BoolVar(&opts.changelog, "changelog", true, "Append release entry to CHANGELOG.md per chart")
@@ -105,7 +106,6 @@ and pushes it to the configured registry.`,
 	cmd.Flags().StringVar(&opts.tagPrefix, "tag-prefix", "", "Prefix for git tags, e.g. 'charts/'")
 	cmd.Flags().StringVar(&opts.authorName, "git-author-name", "helm-semver[bot]", "Git commit author name")
 	cmd.Flags().StringVar(&opts.authorEmail, "git-author-email", "helm-semver[bot]@users.noreply.github.com", "Git commit author email")
-	cmd.Flags().Int64Var(&opts.maxFileBytes, "max-file-bytes", 32*1024*1024, "Maximum size in bytes Helm's loader accepts for one file inside a chart (vendored dependency packages exceed Helm's 5 MiB default)")
 
 	_ = cmd.MarkFlagRequired("registry")
 
@@ -272,10 +272,10 @@ func newPublisher(opts *releaseOptions) (registry.Publisher, error) {
 	switch strings.ToLower(opts.registryType) {
 	case "oci":
 		return &registry.OCIPublisher{
-			RegistryURL:  opts.registry,
-			Username:     opts.registryUser,
-			Password:     opts.registryPass,
-			MaxFileBytes: opts.maxFileBytes,
+			RegistryURL: opts.registry,
+			Username:    opts.registryUser,
+			Password:    opts.registryPass,
+			PlainHTTP:   opts.registryPlain,
 		}, nil
 	case "chartmuseum":
 		return &registry.ChartMuseumPublisher{
