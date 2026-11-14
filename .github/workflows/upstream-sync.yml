@@ -1,0 +1,39 @@
+name: Mirror official upstream main
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: upstream-main-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.repository == 'marlon-costa-dc/helm-semver' && github.ref == 'refs/heads/dc-use'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: dc-use
+          fetch-depth: 0
+      - name: Fast-forward main to the exact official commit
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          git fetch --no-tags https://github.com/rhysmcneill/helm-semver.git refs/heads/main
+          mirror="$(git rev-parse refs/remotes/origin/main)"
+          source="$(git rev-parse FETCH_HEAD)"
+          if [ "$mirror" = "$source" ]; then
+            echo "main already mirrors $source"
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor "$mirror" "$source"; then
+            echo "::error::main at $mirror contains fork history relative to upstream $source; preserve and reconcile it before enabling the mirror."
+            exit 1
+          fi
+          git push origin "$source:refs/heads/main"

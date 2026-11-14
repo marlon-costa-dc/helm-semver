@@ -263,7 +263,7 @@ Flags:
   --registry-type string        Registry type: oci, chartmuseum, github-pages (default "oci")
   --registry-username string    Registry username
   --registry-password string    Registry password (env: REGISTRY_PASSWORD)
-  --registry-plain-http         Talk to an OCI registry over HTTP instead of HTTPS
+  --registry-plain-http         Use plain HTTP (no TLS) for OCI registry pushes, e.g. an in-cluster registry reached over a Service DNS name
   --git-push                    Push each release commit and its tag as it is published (default true)
   --dry-run                     Print what would happen without making any changes
   --changelog                   Append release entry to CHANGELOG.md per chart (default true)
