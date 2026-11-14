@@ -1,8 +1,11 @@
 name: Release Please
 
+# Manual-only on the fork: main mirrors upstream, whose own Release Please
+# already tags upstream releases. The fork releases functional versions from
+# dc-use with the manual `Release Artifacts` workflow (vX.Y.Z-dc.N), and the
+# GitHub App credentials used by this workflow are not configured here.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
